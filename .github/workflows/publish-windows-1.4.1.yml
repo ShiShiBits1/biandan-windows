@@ -1,0 +1,61 @@
+name: Publish Windows 1.4.1
+on:
+  push:
+    branches:
+      - publish/windows-1.4.1
+permissions:
+  contents: write
+concurrency:
+  group: publish-windows-1.4.1
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_SHA: 7804195d4d82216f3b6b2748702af61f5d171961
+      PACKAGE: Biandan-Windows-x64-1.4.1.zip
+      ZIP_BLOB: 2fd3f0ed35e3b57befdffc87c4604f77732d203b
+      EXPECTED_SHA256: 4957be975bb75d9e72ef96c20778654bd630d99e5f41efe1d9c38d439b042d68
+    steps:
+      - name: Verify the original Windows package
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/git/blobs/$ZIP_BLOB" --jq '.content' | base64 -d > "$PACKAGE"
+          echo "$EXPECTED_SHA256  $PACKAGE" | sha256sum -c -
+      - name: Publish the verified ZIP on the source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTES'
+          便单 Windows 1.4.1 是由 ShiShiBits1 独立维护的第三方 Windows 客户端，适用于 Windows 10/11 x64 和 .NET Framework 4.8 或更高版本。
+          
+          ## 本版更新
+          
+          - 「设置」固定在侧栏左下角，位于「新建清单」下方。展开侧栏显示齿轮与文字，折叠后可点击齿轮打开设置。
+          - 延续 1.4.0 的主题光感、任务卡边缘反馈和周计划拖放预览。
+          
+          ## 下载与运行
+          
+          下载 `Biandan-Windows-x64-1.4.1.zip`，先退出托盘中的旧版便单，完整解压后运行 `Biandan.exe`。
+          
+          SHA-256 为 `4957be975bb75d9e72ef96c20778654bd630d99e5f41efe1d9c38d439b042d68`。
+          NOTES
+          if ! gh release view v1.4.1 --json databaseId >/dev/null 2>&1; then
+            gh release create v1.4.1 --draft --target "$RELEASE_SHA" --title "便单 Windows 1.4.1" --notes-file notes.md
+          fi
+          state=$(gh release view v1.4.1 --json databaseId,isDraft,targetCommitish)
+          id=$(jq -r '.databaseId' <<<"$state")
+          if [[ "$(jq -r '.isDraft' <<<"$state")" == "true" ]]; then
+            [[ "$(jq -r '.targetCommitish' <<<"$state")" == "$RELEASE_SHA" ]]
+            count=$(gh api "repos/$GH_REPO/releases/$id/assets" | jq --arg name "$PACKAGE" '[.[]|select(.name==$name)]|length')
+            if [[ "$count" == "0" ]]; then gh release upload v1.4.1 "$PACKAGE"; fi
+          fi
+          gh release download v1.4.1 --pattern "$PACKAGE" --dir verify
+          echo "$EXPECTED_SHA256  verify/$PACKAGE" | sha256sum -c -
+          if [[ "$(jq -r '.isDraft' <<<"$state")" == "true" ]]; then
+            gh release edit v1.4.1 --draft=false --latest
+          fi
