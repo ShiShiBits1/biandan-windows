@@ -296,7 +296,7 @@ namespace Biandan {
    DateTime first=DemoCalendar.Date(args.S("start_date",cloud?"1970-01-01":J.Today));
    DateTime last=DemoCalendar.Date(args.S("end_date",undated&&cloud?"2100-12-31":J.Date(first)));
    var windows=cloud&&rule!=null&&args.B("china_makeup")?
-    new List<Tuple<DateTime,DateTime>>{Tuple.Create(first,first)}:DemoCalendar.Windows(first,last,rule).ToList();
+    new List<Tuple<DateTime,DateTime>>{Tuple.Create(first,first)}:DemoCalendar.Windows(first,last,rule,args.I("week_start",0)).ToList();
    var task=J.Clone(args);
    task["task_id"]=taskId;task["undated"]=undated;task["list_id"]=args.S("list_id","1");
    task["repeat_type"]=rule==null?0:4;task["recurrence"]=rule;task["is_habit"]=args.B("habit");

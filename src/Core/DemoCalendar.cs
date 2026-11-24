@@ -12,7 +12,7 @@ namespace Biandan {
    return date;
   }
 
-  public static IEnumerable<Tuple<DateTime,DateTime>> Windows(DateTime first,DateTime last,Dictionary<string,object> rule){
+  public static IEnumerable<Tuple<DateTime,DateTime>> Windows(DateTime first,DateTime last,Dictionary<string,object> rule,int weekStart=0){
    if(last<first)throw new McpException("结束日期不能早于开始日期。");
    if(rule==null){yield return Tuple.Create(first,last);yield break;}
 
@@ -20,14 +20,18 @@ namespace Biandan {
    var maximum=new DateTime(2100,12,31);
    if(first<minimum||last>maximum)throw new McpException("循环日期应在 1900-01-31 至 2100-12-31 之间。");
    string mode=rule.S("mode");
+   string unit=rule.S("unit","day");
+   int interval=rule.I("interval",1);
+   if(interval<1||interval>366)throw new McpException("循环间隔应为 1 到 366 的整数。");
+   if(weekStart!=0&&weekStart!=1)throw new McpException("每周的第一天应为周日或周一。");
    var firstWindow=first;
-   if(mode=="weekly_period")firstWindow=first.AddDays(-((int)first.DayOfWeek+6)%7);
+   if(mode=="weekly_period")firstWindow=first.AddDays(-((int)first.DayOfWeek-weekStart+7)%7);
    if(mode=="monthly_period")firstWindow=new DateTime(first.Year,first.Month,1);
    if(mode=="yearly_period")firstWindow=new DateTime(first.Year,1,1);
 
    var selected=new HashSet<string>(rule.Strings("dates"));
    var windows=new SortedSet<DateTime>();
-   if(mode=="custom"&&rule.S("unit")=="month"){
+   if(mode=="custom"&&unit=="month"){
     var month=new DateTime(first.Year,first.Month,1);
     while(month<=last){
      foreach(var value in selected){
@@ -37,11 +41,11 @@ namespace Biandan {
       if(date>=first&&date<=last)windows.Add(date);
      }
      if(windows.Count>1000)throw new McpException("循环最多生成 1000 次，请缩短日期范围。");
-     month=month.AddMonths(1);
+     month=month.AddMonths(interval);
     }
    }else{
     for(var day=firstWindow;day<=last;day=day.AddDays(1)){
-     if(Includes(day,first,mode,rule.S("unit"),selected))windows.Add(day);
+     if(Includes(day,first,mode,unit,interval,selected,weekStart))windows.Add(day);
      if(windows.Count>1000)throw new McpException("循环最多生成 1000 次，请缩短日期范围。");
     }
    }
@@ -56,20 +60,26 @@ namespace Biandan {
    }
   }
 
-  static bool Includes(DateTime day,DateTime first,string mode,string unit,HashSet<string> selected){
+  static bool Includes(DateTime day,DateTime first,string mode,string unit,int interval,HashSet<string> selected,int weekStart){
    bool weekend=day.DayOfWeek==DayOfWeek.Saturday||day.DayOfWeek==DayOfWeek.Sunday;
    switch(mode){
     case "workdays": return !weekend;
     case "days_off": return weekend;
-    case "weekly_period": return day.DayOfWeek==DayOfWeek.Monday;
+    case "weekly_period": return (int)day.DayOfWeek==weekStart;
     case "monthly_period": return day.Day==1;
     case "yearly_period": return day.DayOfYear==1;
     case "ebbinghaus":
      int offset=(day-first).Days;
      return new[]{0,1,2,4,6,14}.Contains(offset)||(offset>=29&&(offset-29)%15==0);
     case "custom":
-     if(unit=="week")return selected.Contains(((int)day.DayOfWeek).ToString(CultureInfo.InvariantCulture));
-     return selected.Contains(day.ToString("MM-dd",CultureInfo.InvariantCulture));
+     if(unit=="day")return (day-first).Days%interval==0;
+     if(unit=="week"){
+      // The MCP uses a signed weekday difference to anchor custom week intervals.
+      var anchor=first.AddDays(weekStart-(int)first.DayOfWeek);
+      int offsetDays=(day-anchor).Days;
+      return offsetDays>=0&&(offsetDays/7)%interval==0&&selected.Contains(((int)day.DayOfWeek).ToString(CultureInfo.InvariantCulture));
+     }
+     return (day.Year-first.Year)%interval==0&&selected.Contains(day.ToString("MM-dd",CultureInfo.InvariantCulture));
     default: return true;
    }
   }

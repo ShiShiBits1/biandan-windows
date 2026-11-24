@@ -453,9 +453,24 @@ namespace Biandan {
 
   async Task VerifyListNavigationAsync(){
    Desktop.Navigate("today");
-   string id=J.NewId();
-   const string added="清单同步验收",renamed="清单改名验收";
-   await Repo.CallAsync("create_list",J.Obj("operation_id",id,"name",added,"color",4));
+   string added="清单同步验收-"+J.NewId();
+   const string renamed="清单改名验收";
+   Exception failure=null;
+   var submit=Dispatcher.BeginInvoke(new Action(delegate{
+    var dialog=Desktop.OwnedWindows.Cast<Window>().Single(w=>w.IsVisible&&w.Title=="新建清单");
+    try{
+     dialog.UpdateLayout();
+     VisualControls<TextBox>(dialog).Single(box=>AutomationProperties.GetName(box)=="清单名称").Text=added;
+     ClickBulkButton(dialog,"保存清单");
+     if(dialog.IsVisible)throw new InvalidOperationException("The list editor stayed open after saving.");
+    }catch(Exception error){failure=error;}
+    finally{if(dialog.IsVisible)dialog.Close();}
+   }),DispatcherPriority.ApplicationIdle);
+   var newList=VisualControls<Button>(Desktop).Single(control=>AutomationProperties.GetName(control)=="新建清单");
+   newList.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+   await submit.Task;
+   if(failure!=null)throw new InvalidOperationException("Creating a list from the sidebar failed.",failure);
+   string id=Repo.Lists.Single(list=>list.S("name")==added).S("list_id");
    Desktop.UpdateLayout();
    var button=VisualControls<Button>(Desktop).Single(control=>AutomationProperties.GetName(control)==added);
    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -523,6 +538,7 @@ namespace Biandan {
    if(!Controls<TextBox>(Desktop).Any(field=>AutomationProperties.GetName(field)=="小助手问题"))
     throw new InvalidOperationException("The assistant page did not expose its input.");
    U.Capture(Desktop,Path.Combine(directory,"17-assistant.png"));
+   VerifyAssistantSkillActions(VisualControls<AssistantView>(Desktop).Single());
    var payload=J.Encode(J.Obj("answer","建议先处理紧急待办。",
     "tasks",new[]{J.Obj("title","确认任务","date",J.Today,"important",true)}));
    var reply=CodexAssistant.Parse(J.Encode(J.Obj("type","item.completed","item",J.Obj("type","agent_message","text",payload))));
@@ -573,6 +589,8 @@ namespace Biandan {
    VerifySyncSettings();
    await VerifyListNavigationAsync();
    VerifyBulkActions();
+   VerifyBundledAssistantSkill();
+   await VerifyAssistantTaskWritesAsync();
    await VerifyAppearanceAndAssistantAsync(dir);
    await VerifyDemoAsync();
    await VerifyTaskRemarksAsync(dir);

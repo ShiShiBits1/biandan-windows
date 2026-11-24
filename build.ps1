@@ -13,7 +13,7 @@ if (!(Test-Path -LiteralPath $compiler -PathType Leaf)) {
 }
 
 $references = @(
-    'System', 'System.Core', 'System.Drawing', 'System.Net.Http',
+    'System', 'System.Core', 'System.Drawing', 'System.IO.Compression', 'System.Net.Http',
     'System.Security', 'System.Web.Extensions', 'System.Windows.Forms', 'System.Xaml', 'System.Xml',
     'WPF\WindowsBase', 'WPF\PresentationCore', 'WPF\PresentationFramework', 'WPF\System.Windows.Presentation'
 ) | ForEach-Object { '/reference:' + (Join-Path $framework "$_.dll") }
@@ -25,11 +25,13 @@ $icon = Join-Path $PSScriptRoot 'assets\app.ico'
 $theme = Join-Path $sourceRoot 'Views\Theme.xaml'
 $appImage = Join-Path $PSScriptRoot 'assets\app.png'
 $service = Join-Path $PSScriptRoot 'backend\biandan-mcp.exe'
+$assistantSkill = Join-Path $PSScriptRoot 'assets\biandan-assistant.zip'
 $exe = Join-Path $output 'Biandan.exe'
 $arguments = @(
     '/nologo', '/utf8output', '/codepage:65001', '/langversion:5', '/target:winexe',
     '/platform:x64', '/optimize+', "/out:$exe", "/win32icon:$icon", "/resource:$theme,Biandan.Theme.xaml",
-    "/resource:$appImage,Biandan.App.png", "/resource:$icon,Biandan.App.ico", "/resource:$service,Biandan.Backend.exe"
+    "/resource:$appImage,Biandan.App.png", "/resource:$icon,Biandan.App.ico", "/resource:$service,Biandan.Backend.exe",
+    "/resource:$assistantSkill,Biandan.AssistantSkill.zip"
 )
 & $compiler @arguments @references @sources
 if ($LASTEXITCODE -ne 0) {

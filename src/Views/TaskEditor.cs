@@ -135,8 +135,22 @@ namespace Biandan {
  public static class ListEditor {
   public static void Show(Window owner,Repository repo,Dictionary<string,object> list){
    var w=U.Dialog(owner,list==null?"新建清单":"编辑清单",440,380);var panel=U.Stack();panel.Children.Add(U.Text(list==null?"给事情分个类":"编辑清单",23,"#4A3316",true));U.Gap(panel,22);
-   var name=U.Input(list==null?"":list.S("name"));panel.Children.Add(U.Field("清单名称",name));var colors=new ComboBox();foreach(var s in new[]{"默认","红色","橙色","黄色","绿色","湖蓝","浅蓝","深蓝","紫色","柔红","柔橙","柔黄","柔绿","柔湖蓝","柔浅蓝","柔深蓝","柔紫","莫兰迪红","莫兰迪橙","莫兰迪黄","莫兰迪绿","莫兰迪湖蓝","莫兰迪浅蓝","莫兰迪深蓝","莫兰迪紫"})colors.Items.Add(s);colors.SelectedIndex=list==null?4:list.I("color");panel.Children.Add(U.Field("标记颜色",colors));string operationId=J.NewId();bool busy=false;
-   var save=U.Button("保存清单",null,"Primary");save.Click+=async delegate{if(busy)return;if(string.IsNullOrWhiteSpace(name.Text)){U.Error(w,new McpException("请填写清单名称。"));return;}busy=true;save.IsEnabled=false;try{var a=J.Obj("name",name.Text.Trim(),"color",colors.SelectedIndex);a[list==null?"operation_id":"list_id"]=list==null?operationId:list.S("list_id");await repo.CallAsync(list==null?"create_list":"update_list",a);w.DialogResult=true;}catch(Exception e){U.Error(w,e);}finally{busy=false;save.IsEnabled=true;}};
+   var name=U.Input(list==null?"":list.S("name"));AutomationProperties.SetName(name,"清单名称");panel.Children.Add(U.Field("清单名称",name));var colors=new ComboBox();foreach(var s in new[]{"默认","红色","橙色","黄色","绿色","湖蓝","浅蓝","深蓝","紫色","柔红","柔橙","柔黄","柔绿","柔湖蓝","柔浅蓝","柔深蓝","柔紫","莫兰迪红","莫兰迪橙","莫兰迪黄","莫兰迪绿","莫兰迪湖蓝","莫兰迪浅蓝","莫兰迪深蓝","莫兰迪紫"})colors.Items.Add(s);colors.SelectedIndex=list==null?4:list.I("color");panel.Children.Add(U.Field("标记颜色",colors));string operationId=J.NewId();bool busy=false;
+   var save=U.Button("保存清单",null,"Primary");
+   save.Click+=async delegate{
+    if(busy)return;
+    if(string.IsNullOrWhiteSpace(name.Text)){U.Error(w,new McpException("请填写清单名称。"));return;}
+    busy=true;save.IsEnabled=false;
+    try{
+     var a=J.Obj("name",name.Text.Trim(),"color",colors.SelectedIndex);
+     a[list==null?"operation_id":"list_id"]=list==null?operationId:list.S("list_id");
+     await repo.CallAsync(list==null?"create_list":"update_list",a);
+    }catch(Exception e){
+     U.Error(w,e);
+     return;
+    }finally{busy=false;save.IsEnabled=true;}
+    w.DialogResult=true;
+   };
    w.Closing+=delegate(object sender,System.ComponentModel.CancelEventArgs e){if(busy)e.Cancel=true;};var footer=U.Stack(true);footer.HorizontalAlignment=HorizontalAlignment.Right;footer.Children.Add(U.Button("取消",()=>w.Close()));footer.Children.Add(save);U.DialogContent(w,"我的清单",panel,footer);w.ShowDialog();
   }
  }

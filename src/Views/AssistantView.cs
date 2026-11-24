@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,7 +47,7 @@ namespace Biandan {
   }
  }
 
- internal sealed class AssistantView:UserControl{
+ internal sealed partial class AssistantView:UserControl{
   Window owner;
   readonly App app;
   readonly CodexAssistant cli;
@@ -56,6 +57,7 @@ namespace Biandan {
   readonly StackPanel messages;
   readonly ScrollViewer history;
   readonly Button send,stop,statusButton,loginButton,chooseButton;
+  readonly Queue<string> previousQuestions=new Queue<string>();
   CancellationTokenSource current;
 
   public AssistantView(Window owner,App app){
@@ -80,9 +82,9 @@ namespace Biandan {
    intro.Children.Add(U.Text("今天要安排什么？",21,"#513D24",true));
    U.Gap(intro,12);
    var examples=new WrapPanel();
-   Suggest(examples,"整理今天的待办","帮我把今天的待办按优先级排好，指出最值得先做的三件事。",true);
-   Suggest(examples,"拆解一项任务","帮我把这件事拆成几条可以直接执行的待办：",false);
-   Suggest(examples,"安排这周重点","根据近期待办帮我安排本周重点，给出可执行的草稿。",true);
+   Suggest(examples,"查询今天的待办","查询今天的全部待办。");
+   Suggest(examples,"拆解一项任务","帮我把这件事拆成几条可以直接执行的待办：");
+   Suggest(examples,"启动番茄钟","开始 25 分钟专注。");
    intro.Children.Add(examples);
    messages.Children.Add(GlassCard(intro,17,new Thickness(19)));
    U.Gap(messages,12);
@@ -100,7 +102,8 @@ namespace Biandan {
    };
    compose.Children.Add(input);U.Gap(compose,5);
    var bottom=U.Grid("*,Auto,Auto");
-   includeTasks=new CheckBox{Content="附上近期待办的标题、日期和状态",VerticalAlignment=VerticalAlignment.Center};
+   includeTasks=new CheckBox{Content="附上近期待办并允许查询本机清单",VerticalAlignment=VerticalAlignment.Center};
+   includeTasks.ToolTip="勾选后将最多 30 条近期待办的标题、日期、优先级和状态附到本次提问。按日期查询的结果仅在本机显示。";
    U.Place(bottom,includeTasks);
    stop=U.Button("停止",()=>{if(current!=null)current.Cancel();},"Secondary");
    stop.Margin=new Thickness(0,0,8,0);U.Place(bottom,stop,1);
@@ -119,9 +122,9 @@ namespace Biandan {
 
   public void SetOwner(Window window){owner=window;}
 
-  void Suggest(Panel panel,string label,string prompt,bool tasks){
+  void Suggest(Panel panel,string label,string prompt){
    var button=U.Button(label,()=>{
-    input.Text=prompt;includeTasks.IsChecked=tasks;input.Focus();input.CaretIndex=prompt.Length;
+    input.Text=prompt;input.Focus();input.CaretIndex=prompt.Length;
    },"Secondary");
    button.Margin=new Thickness(0,0,7,4);panel.Children.Add(button);
   }
@@ -135,6 +138,11 @@ namespace Biandan {
    var button=parent as Button;
    if(button!=null&&button.Tag is AssistantSuggestion&&Equals(button.Content,"添加待办"))
     button.IsEnabled=app.Repo.CanWrite;
+   if(button!=null&&button.Tag is AssistantFocus&&!Equals(button.Content,"已开始")){
+    button.IsEnabled=!app.FocusStarted.HasValue;
+    button.Content=button.IsEnabled?"开始专注":"已有专注";
+    button.ToolTip=button.IsEnabled?null:"请先在「专注时刻」保存或结束当前专注。";
+   }
    foreach(var child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
     ToggleSuggestionButtons(child);
   }
@@ -180,11 +188,14 @@ namespace Biandan {
    using(var job=new CancellationTokenSource(TimeSpan.FromMinutes(3))){
     current=job;SetBusy(true);
     input.Clear();
-    AddMessage("你",question,null);
+    AddMessage("你",question,null,null);
     status.Text="Codex 正在回答…";
     try{
-     var reply=await cli.AskAsync(question,context,job.Token);
-     AddMessage("便单小助手",reply.Answer,reply.Suggestions);
+     var reply=await cli.AskAsync(question,context,job.Token,include,previousQuestions.ToArray());
+     job.Token.ThrowIfCancellationRequested();
+     previousQuestions.Enqueue(question);
+     if(previousQuestions.Count>3)previousQuestions.Dequeue();
+     ShowReply(reply,include&&includeTasks.IsChecked==true);
      status.Text="Codex CLI 已登录 ChatGPT。";
     }catch(OperationCanceledException){
      status.Text="本次请求已停止。";if(input.Text.Length==0)input.Text=question;
@@ -194,7 +205,7 @@ namespace Biandan {
    }
   }
 
-  void AddMessage(string label,string content,System.Collections.Generic.IEnumerable<AssistantSuggestion> suggestions){
+  void AddMessage(string label,string content,IEnumerable<AssistantSuggestion> suggestions,AssistantFocus focus){
    var panel=U.Stack();
    panel.Children.Add(U.Text(label,11,"#8D560B",true));U.Gap(panel,7);
    var text=U.Text(content,14,"#2E2418");
@@ -204,6 +215,7 @@ namespace Biandan {
     foreach(var suggested in suggestions){
      U.Gap(panel,8);panel.Children.Add(SuggestionCard(suggested));
     }
+   if(focus!=null){U.Gap(panel,8);panel.Children.Add(FocusCard(focus));}
    var card=GlassCard(panel,15,new Thickness(16,12,16,13));
    card.Margin=new Thickness(0,0,0,11);messages.Children.Add(card);
    Dispatcher.BeginInvoke(new Action(history.ScrollToEnd),System.Windows.Threading.DispatcherPriority.Background);
@@ -214,15 +226,18 @@ namespace Biandan {
    var information=U.Stack();
    var title=U.Text(task.Title,13,"#513D24",true);title.TextWrapping=TextWrapping.Wrap;
    information.Children.Add(title);U.Gap(information,3);
-   information.Children.Add(U.Text((task.Date??"未安排日期")+(task.Important?" · 重要":""),11,"#79684F"));
+   var description=U.Text(DraftDetails(task),12,"#79684F");
+   description.TextWrapping=TextWrapping.Wrap;description.TextTrimming=TextTrimming.None;
+   information.Children.Add(description);
    U.Place(row,information);
    var add=U.Button("添加待办",null,"Secondary");
    add.Tag=task;add.IsEnabled=app.Repo.CanWrite;
    add.Margin=new Thickness(9,0,0,0);U.Place(row,add,1);
    add.Click+=async delegate{
+    if(!add.IsEnabled)return;
     add.IsEnabled=false;add.Content="添加中…";
     try{
-     await app.Repo.CreateQuickAsync(task.Title,task.OperationId,task.Date,"1",task.Important);
+     await app.Repo.CreateAssistantTaskAsync(task);
      add.Content="已添加";
     }catch(Exception error){
      status.Text=U.Friendly(error.Message);
