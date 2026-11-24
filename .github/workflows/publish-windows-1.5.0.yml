@@ -1,0 +1,80 @@
+name: Publish Windows 1.5.0
+on:
+  push:
+    branches:
+      - publish/windows-1.5.0
+permissions:
+  contents: read
+concurrency:
+  group: publish-windows-1.5.0
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_SHA: 3fce619ea963c8fe36534bdb90bba0c53feb278f
+      TAG: v1.5.0
+      PACKAGE: Biandan-Windows-x64-1.5.0.zip
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - name: Build and verify the Windows x64 package
+        shell: pwsh
+        run: |
+          .\build.ps1 -Package
+          $packagePath = Join-Path 'release' $env:PACKAGE
+          Expand-Archive -LiteralPath $packagePath -DestinationPath 'verify-package'
+          $executable = (Resolve-Path -LiteralPath 'verify-package\Biandan.exe').Path
+          $version = [Reflection.AssemblyName]::GetAssemblyName($executable).Version
+          if ($version.ToString(3) -ne '1.5.0') {
+            throw "Unexpected executable version: $version"
+          }
+      - name: Upload, verify, and publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          package="release/$PACKAGE"
+          if ! gh release view "$TAG" --json isDraft >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --target "$RELEASE_SHA" --title "便单 Windows 1.5.0" --notes "便单 Windows 1.5.0"
+          fi
+
+          target=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish)
+          [[ "$target" == "$RELEASE_SHA" ]]
+          is_draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          if ! grep -Fxq "$PACKAGE" <<< "$assets"; then
+            [[ "$is_draft" == "true" ]]
+            checksum=$(sha256sum "$package" | cut -d ' ' -f 1)
+            cat > release-notes.md <<'NOTES'
+          ## 本版更新
+
+          - 新建和编辑待办时，备注支持 Markdown 输入与预览。
+          - 待办详情直接渲染 Markdown。保存和同步使用备注原文。
+          - 内置便单 MCP 0.4.3 保留已有附件引用，备注可加入已托管的文件或图片链接。
+
+          ## 下载与运行
+
+          适用于 Windows 10/11 x64 和 .NET Framework 4.8 或更高版本。先退出托盘中的旧版便单，完整解压 `Biandan-Windows-x64-1.5.0.zip` 后运行 `Biandan.exe`。
+          NOTES
+            printf '\nSHA-256 为 `%s`。\n' "$checksum" >> release-notes.md
+            gh release edit "$TAG" --notes-file release-notes.md
+            gh release upload "$TAG" "$package"
+          fi
+
+          notes=$(gh release view "$TAG" --json body --jq .body)
+          checksum=$(sed -n 's/^SHA-256 为 `\([0-9a-f]\{64\}\)`。$/\1/p' <<< "$notes")
+          [[ "$checksum" =~ ^[0-9a-f]{64}$ ]]
+          gh release download "$TAG" --pattern "$PACKAGE" --dir verify-download
+          echo "$checksum  verify-download/$PACKAGE" | sha256sum -c -
+          if [[ "$is_draft" == "true" ]]; then
+            gh release edit "$TAG" --draft=false --latest
+          fi
