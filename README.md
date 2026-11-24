@@ -2,6 +2,8 @@
 
 本项目由 ShiShiBits1 独立维护，是兼容便单的第三方 Windows 客户端。内置便单 MCP 0.4.3，用于授权和同步。[官方 MCP 项目](https://gitcode.com/biandangroup/biandan_MCP)
 
+![便单 Windows 1.4.0「我的一天」界面与任务菜单](docs/images/Biandan-1.4.0-Preview.png)
+
 退出旧版便单后双击新版 `Biandan.exe`。适用于带有 .NET Framework 4.8 或更高版本的 Windows 10/11 x64。登录服务和图标已内置到主程序，授权时会自动准备本机登录服务。
 
 ## 登录和体验
