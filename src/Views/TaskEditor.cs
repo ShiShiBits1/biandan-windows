@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 namespace Biandan {
  public sealed class TaskEditor:Window{
   readonly Repository repo;readonly TaskItem item;readonly string operationId=J.NewId();readonly TextBox name,remark,startTime,endTime,subtasks,target,location,reminderTime,ruleDates;readonly DatePicker start,end,reminderDate;readonly CheckBox dated,important,urgent,collected,habit,remind,makeup;readonly ComboBox list,repeat;readonly TextBlock error;readonly Button save;bool saving;
@@ -12,7 +13,8 @@ namespace Biandan {
   public TaskEditor(Window owner,Repository repository,TaskItem existing,DateTime? initialDate=null,string initialList="1",TimeSpan? initialTime=null){
    repo=repository;item=existing;Title=existing==null?"新建待办":"编辑待办";Owner=owner;ShowInTaskbar=false;U.Configure(this,580,800);Height=Math.Min(800,SystemParameters.WorkArea.Height-35);ResizeMode=ResizeMode.NoResize;WindowStartupLocation=WindowStartupLocation.CenterOwner;
    var t=existing==null?J.Obj():existing.Task;var panel=U.Stack();panel.Children.Add(U.Text(existing==null?"写下一件小事":"编辑这项待办",23,"#4A3316",true));U.Gap(panel,19);
-   name=U.Input(t.S("title"));name.MaxLength=500;panel.Children.Add(U.Field("待办名称",name));remark=U.Input(t.S("remark"),true);panel.Children.Add(U.Field("备注",remark));
+   name=U.Input(t.S("title"));name.MaxLength=500;panel.Children.Add(U.Field("待办名称",name));
+   remark=U.Input(t.S("remark"),true);panel.Children.Add(RemarkField());
    listItems=repo.Lists.ToList();if(listItems.Count==0)listItems.Add(J.Obj("list_id","1","name","未分类"));list=new ComboBox();foreach(var l in listItems)list.Items.Add(l.S("name"));int li=listItems.FindIndex(l=>l.S("list_id")==t.S("list_id",initialList));list.SelectedIndex=Math.Max(0,li);
    panel.Children.Add(U.Field("所属清单",list));
    var flags=U.Stack(true);important=new CheckBox{Content="重要",IsChecked=t.B("important")};urgent=new CheckBox{Content="紧急",IsChecked=t.B("urgent"),Margin=new Thickness(24,0,0,0)};collected=new CheckBox{Content="收藏",IsChecked=t.B("collected"),Margin=new Thickness(24,0,0,0)};flags.Children.Add(important);flags.Children.Add(urgent);flags.Children.Add(collected);panel.Children.Add(flags);U.Gap(panel,20);
@@ -38,6 +40,42 @@ namespace Biandan {
    error=U.Text("",12,"#B47D5D");error.TextWrapping=TextWrapping.Wrap;panel.Children.Add(error);
    var footer=U.Grid("*,Auto,Auto");U.Place(footer,U.Text(repo.Demo?"仅保存到本机体验数据":"先保存到本机，空闲时同步",11,"#897859"));U.Place(footer,U.Button("取消",()=>Close()),1);save=U.Button("保存待办",()=>Save(),"Primary");save.Margin=new Thickness(10,0,0,0);save.IsEnabled=repo.CanWrite;U.Place(footer,save,2);U.DialogContent(this,Title,panel,footer);
    Closing+=delegate(object sender,System.ComponentModel.CancelEventArgs e){if(saving)e.Cancel=true;};Loaded+=delegate{name.Focus();};
+  }
+  FrameworkElement RemarkField(){
+   AutomationProperties.SetName(remark,"备注原文");
+   var field=U.Stack();
+   field.Margin=new Thickness(0,0,0,15);
+   var header=U.Grid("*,Auto");
+   header.Margin=new Thickness(0,0,0,7);
+   var label=U.Text("备注（Markdown）",12,"#79684F");
+   label.VerticalAlignment=VerticalAlignment.Center;
+   U.Place(header,label);
+
+   var toggle=U.Button("预览",null,"Secondary");
+   toggle.MinHeight=26;
+   toggle.Padding=new Thickness(10,2,10,2);
+   AutomationProperties.SetName(toggle,"预览备注");
+   U.Place(header,toggle,1);
+   field.Children.Add(header);
+   field.Children.Add(remark);
+
+   var preview=U.Card(null,"#FFFDF8",10,new Thickness(12,9,12,9));
+   preview.MinHeight=remark.MinHeight;
+   preview.Visibility=Visibility.Collapsed;
+   AutomationProperties.SetName(preview,"备注预览");
+   field.Children.Add(preview);
+   toggle.Click+=delegate{
+    bool showPreview=preview.Visibility!=Visibility.Visible;
+    if(showPreview){
+     preview.Child=string.IsNullOrWhiteSpace(remark.Text)?U.Text("暂无备注",13,"#79684F"):TaskRemarkMarkdown.Render(remark.Text);
+    }else preview.Child=null;
+    preview.Visibility=showPreview?Visibility.Visible:Visibility.Collapsed;
+    remark.Visibility=showPreview?Visibility.Collapsed:Visibility.Visible;
+    toggle.Content=showPreview?"编辑原文":"预览";
+    AutomationProperties.SetName(toggle,showPreview?"编辑备注原文":"预览备注");
+    if(!showPreview)remark.Focus();
+   };
+   return field;
   }
   public Dictionary<string,object> BuildCreate(){
    if(string.IsNullOrWhiteSpace(name.Text))throw new McpException("请填写待办名称。");

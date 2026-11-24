@@ -575,6 +575,7 @@ namespace Biandan {
    VerifyBulkActions();
    await VerifyAppearanceAndAssistantAsync(dir);
    await VerifyDemoAsync();
+   await VerifyTaskRemarksAsync(dir);
    await VerifyWeeklyPlanAsync(dir);
    await VerifyTaskBoardsAsync(dir);
    var bundled=BundledBackend.Prepare(Path.Combine(Preferences.DirectoryPath,"mcp"));

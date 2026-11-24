@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 namespace Biandan {
  public sealed class TaskDetail:Window{
   readonly Repository repo;TaskItem item;bool busy;
@@ -14,7 +15,12 @@ namespace Biandan {
   void Render(){
    var panel=U.Stack();var title=U.Text(item.Title,24,"#4A3316",true);title.TextWrapping=TextWrapping.Wrap;panel.Children.Add(title);U.Gap(panel,13);var tags=U.Stack(true);tags.Children.Add(U.Pill(repo.ListName(item.ListId)));if(item.Repeating){var tag=U.Pill(item.Task.B("is_habit")?"循环习惯":"循环待办","#9C987A","#FBF1DD");tag.Margin=new Thickness(8,0,0,0);tags.Children.Add(tag);}panel.Children.Add(tags);U.Gap(panel,23);
    panel.Children.Add(U.Text(item.Undated?"未安排日期":item.Start+(item.End!=item.Start?" → "+item.End:"")+(item.Time!=""?"  "+item.Time:""),13,"#7B6548"));U.Gap(panel,17);
-   if(item.Task.S("remark")!=""){var text=U.Text(item.Task.S("remark"),13,"#6E5638");text.TextWrapping=TextWrapping.Wrap;text.LineHeight=25;panel.Children.Add(U.Card(text,"#FFF3DB",12,new Thickness(15)));U.Gap(panel,20);}
+   var remark=item.Task.S("remark");
+   if(!string.IsNullOrWhiteSpace(remark)){
+    var note=U.Card(TaskRemarkMarkdown.Render(remark),"#FFF3DB",12,new Thickness(15));
+    AutomationProperties.SetName(note,"待办备注");
+    panel.Children.Add(note);U.Gap(panel,20);
+   }
    var subs=item.Task.Strings("subtasks");var completed=item.Occurrence.Strings("completed_subtask_indices");
    if(subs.Count>0){panel.Children.Add(U.Text("子任务 · "+item.Occurrence.I("completed_count")+"/"+subs.Count,13,"#6E5638",true));U.Gap(panel,12);for(int i=0;i<subs.Count;i++){int index=i;bool isDone=completed.Contains(i.ToString());var box=new CheckBox{Content=subs[i],IsChecked=isDone,Margin=new Thickness(0,8,0,8),IsEnabled=repo.CanWrite&&!busy&&!item.Abandoned};box.Click+=async delegate{await Act(async()=>await repo.CallAsync(isDone?"change_progress":"complete_subtask",isDone?J.Obj("occurrence_id",item.OccurrenceId,"action","uncheck_subtask","subtask_index",index):J.Obj("occurrence_id",item.OccurrenceId,"subtask_index",index)));};panel.Children.Add(box);}U.Gap(panel,15);}
    else if(item.Task.I("target_count",1)>1){panel.Children.Add(U.Text("本次进度  "+item.Occurrence.I("completed_count")+" / "+item.Task.I("target_count"),14,"#6E5638",true));U.Gap(panel,10);var row=U.Grid("*,Auto");var count=U.Input(item.Occurrence.I("completed_count").ToString());U.Place(row,count);U.Place(row,U.Button("记录次数",async()=>{int n;if(!int.TryParse(count.Text,out n)||n<0||n>item.Task.I("target_count")){U.Error(this,new McpException("请填写目标范围内的次数。"));return;}await Act(async()=>await repo.CallAsync("change_progress",J.Obj("occurrence_id",item.OccurrenceId,"action","set_count","count",n)));},"Secondary"),1);panel.Children.Add(row);U.Gap(panel,18);}
