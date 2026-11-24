@@ -1,0 +1,79 @@
+name: 发布便单 Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/Version.cs
+      - .github/workflows/release-windows.yml
+      - .github/scripts/publish_windows.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      number: ${{ steps.read.outputs.number }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: 读取客户端版本号
+        id: read
+        shell: python
+        run: |
+          import os
+          import re
+          from pathlib import Path
+
+          source = Path("src/Version.cs").read_text(encoding="utf-8-sig")
+          def version(attribute):
+              matches = re.findall(r'^\s*\[assembly:\s*' + attribute + r'\("([0-9]+\.[0-9]+\.[0-9]+)\.0"\)\s*\]', source, re.M)
+              if len(matches) != 1:
+                  raise ValueError(f"Expected one {attribute} in major.minor.patch.0 format")
+              return matches[0]
+
+          number = version("AssemblyVersion")
+          if number != version("AssemblyFileVersion"):
+              raise ValueError("Assembly versions must match")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"number={number}", file=output)
+
+  release:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: biandan-windows-release-${{ needs.version.outputs.number }}
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ needs.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 构建并检查 Windows x64 便携包
+        shell: pwsh
+        run: |
+          .\build.ps1 -Package
+          $package = "release/Biandan-Windows-x64-$env:VERSION.zip"
+          $destination = Join-Path $env:RUNNER_TEMP 'biandan-package'
+          Expand-Archive -LiteralPath $package -DestinationPath $destination
+          $exe = Join-Path $destination 'Biandan.exe'
+          $assembly = [Reflection.AssemblyName]::GetAssemblyName($exe)
+          if ($assembly.Version.ToString() -ne ($env:VERSION + '.0')) {
+            throw "Unexpected version in package: $($assembly.Version)"
+          }
+      - name: 发布并核验 GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python .github/scripts/publish_windows.py

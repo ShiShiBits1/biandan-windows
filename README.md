@@ -55,4 +55,6 @@
 
 ## 从源码构建
 
-在源码目录运行 `powershell -ExecutionPolicy Bypass -File .\build.ps1 -Package`，便携包输出到 `release\Biandan-Windows-x64-1.5.0.zip`。
+在源码目录运行 `powershell -ExecutionPolicy Bypass -File .\build.ps1 -Package`，便携包输出到 `release\Biandan-Windows-x64-<版本号>.zip`。
+
+将新版源码和 `src/Version.cs` 的版本号一起推送到 `main` 后，GitHub Actions 会构建 Windows x64 便携包，回读并校验 ZIP，再公开对应版本。可在 [GitHub Releases](https://github.com/ShiShiBits1/biandan-windows/releases) 下载。
