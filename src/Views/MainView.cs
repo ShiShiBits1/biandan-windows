@@ -389,7 +389,7 @@ namespace Biandan {
   void EditList(Dictionary<string,object> list){if(!repo.CanWrite){ShowToast("请先登录后再修改");return;}ListEditor.Show(this,repo,list);}
   async void Refresh(){if(busy||repo.Syncing)return;busy=true;SetStatus("正在同步…");try{await repo.SyncAsync();if(repo.FailedTaskWriteCount>0)SetSyncStatus();else ShowToast(repo.Demo?"当前为本机体验数据":"已同步");}catch(Exception e){SetStatus(U.Friendly(e.Message),true);}finally{busy=false;}}
   public void ShowToast(string message){SetStatus("✓ "+message);if(toastTimer==null){toastTimer=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(4)};toastTimer.Tick+=delegate{toastTimer.Stop();SetSyncStatus();};}toastTimer.Stop();toastTimer.Start();}
-  public static string ListColor(int color){string[] colors={"#927B54","#CA8C84","#C7A17D","#B9AB72","#82A277","#78A6A1","#90ACBE","#7D8EA9","#A38EAF"};return colors[color==0?0:((color-1)%8)+1];}
+  public static string ListColor(int color){return ListPalette.Hex(color);}
  }
 }
 

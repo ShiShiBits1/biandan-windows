@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -29,6 +30,7 @@ namespace Biandan {
    return Directory.Exists(stateDirectory)?Directory.GetFiles(stateDirectory,"huawei-refresh-*").Where(path=>System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(path),@"^huawei-refresh-[a-f0-9]{24}$")).ToArray():new string[0];
   }
   public McpClient(string statePath){stateDirectory=statePath;}
+  internal McpClient(HttpClient transport){directEndpoint=true;http=transport;}
   internal McpClient(Uri endpoint,string key){directEndpoint=true;ConfigureHttp(endpoint,key);}
   void ConfigureHttp(Uri endpoint,string key){http=new HttpClient(new HttpClientHandler{UseProxy=false}){BaseAddress=endpoint,Timeout=TimeSpan.FromSeconds(120)};http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",key);http.DefaultRequestHeaders.Add("MCP-Protocol-Version","2025-06-18");}
   public Task StartAsync(){return StartAsync(false);}
@@ -88,9 +90,64 @@ namespace Biandan {
    }finally{gate.Release();}
   }
   public async Task<List<Dictionary<string,object>>> AllAsync(string name,Dictionary<string,object> args=null){
-   var all=new List<Dictionary<string,object>>();var query=args==null?J.Obj():J.Clone(args);query["limit"]=100;int offset=0;var seen=new HashSet<int>();
-   while(true){if(!seen.Add(offset))throw new McpException("分页结果重复，已停止同步以避免显示不完整数据。");query["offset"]=offset;var page=await CallAsync(name,query);all.AddRange(page.Rows("items"));if(!page.ContainsKey("next_offset")||page["next_offset"]==null)return all;offset=page.I("next_offset");if(seen.Count>10000)throw new McpException("数据量超过单次同步上限。");}
+   const int limit=100;
+   var query=args==null?J.Obj():J.Clone(args);
+   query["limit"]=limit;
+   var all=new List<Dictionary<string,object>>();
+   var ids=new HashSet<string>(StringComparer.Ordinal);
+   string idKey=null;
+   switch(name){
+    case "search_tasks":idKey="task_id";break;
+    case "list_occurrences":idKey="occurrence_id";break;
+    case "list_focus":idKey="focus_id";break;
+   }
+   int? expectedTotal=null;
+   while(true){
+    int offset=all.Count;
+    query["offset"]=offset;
+    var page=await CallAsync(name,query);
+    object totalValue,itemsValue,next;
+    if(!page.TryGetValue("total",out totalValue)||!(totalValue is int)||(int)totalValue<0||
+       !page.TryGetValue("items",out itemsValue)||!(itemsValue is IList)||!page.TryGetValue("next_offset",out next))
+     throw new McpException("云端分页响应缺少有效的记录或分页信息，请重新同步。");
+    int total=(int)totalValue;
+    if(expectedTotal.HasValue&&total!=expectedTotal.Value)
+     throw new McpException("读取期间云端记录总数发生变化，请重新同步。");
+    expectedTotal=total;
+    var items=(IList)itemsValue;
+    int count=Math.Min(limit,total-offset);
+    if(items.Count!=count)throw new McpException("云端分页记录数量与总数不符，请重新同步。");
+    int end=offset+count;
+    bool last=end==total;
+    if((last&&next!=null)||(!last&&(!(next is int)||(int)next!=end)))
+     throw new McpException("云端分页位置不连续，请重新同步。");
+    foreach(var item in items){
+     var row=item as Dictionary<string,object>;
+     if(row==null)throw new McpException("云端分页记录格式异常，请重新同步。");
+     if(idKey!=null&&!ids.Add(NormalizeBusinessId(row,idKey)))
+      throw new McpException("云端分页记录的编号重复，请重新同步。");
+     if(name=="list_occurrences")NormalizeBusinessId(row,"task_id");
+     if(name=="search_tasks"){
+      string listId=row.DecimalId("list_id");
+      row["list_id"]=listId==null||listId=="0"||listId.StartsWith("-",StringComparison.Ordinal)?"1":listId;
+     }
+     if(name=="list_focus"&&row.ContainsKey("occurrence_id")){
+      string linked=row.DecimalId("occurrence_id");
+      row["occurrence_id"]=linked=="-1"?null:linked;
+     }
+     all.Add(row);
+    }
+    if(last)return all;
+    if(end>=1000000)throw new McpException("数据量超过单次同步上限。");
+   }
   }
+  static string NormalizeBusinessId(Dictionary<string,object> row,string field){
+   string normalized=row.DecimalId(field);
+   if(normalized==null)throw new McpException("云端分页记录的业务编号缺失或无效，请重新同步。");
+   row[field]=normalized;
+   return normalized;
+  }
+
   void ReceiveAuthorization(Uri address){
    if(handoff==null||Equals(authorizationUri,address))return;
    if(PrepareAuthorization!=null&&!PrepareAuthorization()){authorizationStorageFailed=true;return;}

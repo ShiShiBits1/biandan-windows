@@ -10,6 +10,7 @@ namespace Biandan {
  public sealed class TaskEditor:Window{
   readonly Repository repo;readonly TaskItem item;readonly string operationId=J.NewId();readonly TextBox name,remark,startTime,endTime,subtasks,target,location,reminderTime,ruleDates;readonly DatePicker start,end,reminderDate;readonly CheckBox dated,important,urgent,collected,habit,remind,makeup;readonly ComboBox list,repeat;readonly TextBlock error;readonly Button save;bool saving;
   readonly List<Dictionary<string,object>> listItems;readonly CheckBox[] weekdays;readonly StackPanel repeatFields;
+  readonly string originalSubtaskText;
   public TaskEditor(Window owner,Repository repository,TaskItem existing,DateTime? initialDate=null,string initialList="1",TimeSpan? initialTime=null){
    repo=repository;item=existing;Title=existing==null?"新建待办":"编辑待办";Owner=owner;ShowInTaskbar=false;U.Configure(this,580,800);Height=Math.Min(800,SystemParameters.WorkArea.Height-35);ResizeMode=ResizeMode.NoResize;WindowStartupLocation=WindowStartupLocation.CenterOwner;
    var t=existing==null?J.Obj():existing.Task;var panel=U.Stack();panel.Children.Add(U.Text(existing==null?"写下一件小事":"编辑这项待办",23,"#4A3316",true));U.Gap(panel,19);
@@ -33,6 +34,7 @@ namespace Biandan {
    makeup=new CheckBox{Content="使用中国节假日调休（2024–2026）",IsEnabled=!repo.Demo,Margin=new Thickness(0,4,0,15)};repeatFields.Children.Add(makeup);panel.Children.Add(repeatFields);repeatFields.Visibility=Visibility.Collapsed;
    repeat.SelectionChanged+=delegate{repeatFields.Visibility=repeat.SelectedIndex>0?Visibility.Visible:Visibility.Collapsed;weeks.Visibility=repeat.SelectedIndex==4?Visibility.Visible:Visibility.Collapsed;((FrameworkElement)ruleDates.Parent).Visibility=repeat.SelectedIndex==5||repeat.SelectedIndex==6?Visibility.Visible:Visibility.Collapsed;if(repeat.SelectedIndex>0){dated.IsChecked=true;dates.IsEnabled=true;if(end.SelectedDate<=start.SelectedDate)end.SelectedDate=start.SelectedDate.Value.AddMonths(1);}};
    subtasks=U.Input(string.Join("\n",t.Strings("subtasks")),true);subtasks.ToolTip="每行一项，最多 20 项；已有进度时请保留原有顺序";panel.Children.Add(U.Field("子任务（每行一项）",subtasks));target=U.Input(t.I("target_count",1).ToString());panel.Children.Add(U.Field("次数目标（没有子任务时生效，1–99）",target));
+   originalSubtaskText=subtasks.Text;
    target.IsEnabled=t.Strings("subtasks").Count==0;subtasks.TextChanged+=delegate{target.IsEnabled=string.IsNullOrWhiteSpace(subtasks.Text);};
    var reminder=t.D("time_reminder");remind=new CheckBox{Content="时间提醒",IsChecked=reminder!=null};panel.Children.Add(remind);U.Gap(panel,8);reminderDate=new DatePicker{SelectedDate=reminder!=null&&DateTime.TryParse(reminder.S("date"),out parsed)?parsed:start.SelectedDate};reminderTime=U.Input(reminder==null?"09:00":reminder.S("time"));if(reminderTime.Text.Length>5)reminderTime.Text=reminderTime.Text.Substring(0,5);
    var rr=U.Grid("*,12,*");U.Place(rr,reminderDate);U.Place(rr,reminderTime,2);rr.IsEnabled=remind.IsChecked==true;remind.Click+=delegate{rr.IsEnabled=remind.IsChecked==true;};panel.Children.Add(rr);U.Gap(panel,16);
@@ -95,7 +97,15 @@ namespace Biandan {
     if(repeat.SelectedIndex==5||repeat.SelectedIndex==6){rule["unit"]=repeat.SelectedIndex==5?"month":"year";rule["dates"]=ruleDates.Text.Split(new[]{',','，'},StringSplitOptions.RemoveEmptyEntries).Select(s=>s.Trim()).ToArray();}
     a["repeat_rule"]=rule;a["habit"]=habit.IsChecked==true;a["week_start"]=1;a["china_makeup"]=makeup.IsChecked==true;
    }
-   var subs=subtasks.Text.Split(new[]{"\r\n","\n"},StringSplitOptions.RemoveEmptyEntries).Select(s=>s.Trim()).Where(s=>s!="").ToArray();if(subs.Length>20)throw new McpException("子任务最多 20 项。");a["subtasks"]=subs;
+   string[] subs;
+   if(item!=null&&subtasks.Text==originalSubtaskText){
+    // Each stored title owns a progress bit, including titles containing a line break.
+    subs=item.Task.Strings("subtasks").ToArray();
+   }else{
+    subs=subtasks.Text.Split(new[]{"\r\n","\n"},StringSplitOptions.RemoveEmptyEntries).Select(s=>s.Trim()).Where(s=>s!="").ToArray();
+    if(subs.Length>20)throw new McpException("子任务最多 20 项。");
+   }
+   a["subtasks"]=subs;
    if(subs.Length==0){int n;if(!int.TryParse(target.Text,out n)||n<1||n>99)throw new McpException("次数目标请填 1–99。");a["target_count"]=n;}
    if(remind.IsChecked==true){if(dated.IsChecked!=true)throw new McpException("请先安排日期，再开启提醒。");if(!reminderDate.SelectedDate.HasValue)throw new McpException("请选择提醒日期。");ValidateTime(reminderTime.Text,true);a["reminder_date"]=J.Date(reminderDate.SelectedDate.Value);a["reminder_time"]=reminderTime.Text.Trim();}
    if(!string.IsNullOrWhiteSpace(location.Text))a["location"]=J.Obj("name",location.Text.Trim());return a;
@@ -135,16 +145,24 @@ namespace Biandan {
  public static class ListEditor {
   public static void Show(Window owner,Repository repo,Dictionary<string,object> list){
    var w=U.Dialog(owner,list==null?"新建清单":"编辑清单",440,380);var panel=U.Stack();panel.Children.Add(U.Text(list==null?"给事情分个类":"编辑清单",23,"#4A3316",true));U.Gap(panel,22);
-   var name=U.Input(list==null?"":list.S("name"));AutomationProperties.SetName(name,"清单名称");panel.Children.Add(U.Field("清单名称",name));var colors=new ComboBox();foreach(var s in new[]{"默认","红色","橙色","黄色","绿色","湖蓝","浅蓝","深蓝","紫色","柔红","柔橙","柔黄","柔绿","柔湖蓝","柔浅蓝","柔深蓝","柔紫","莫兰迪红","莫兰迪橙","莫兰迪黄","莫兰迪绿","莫兰迪湖蓝","莫兰迪浅蓝","莫兰迪深蓝","莫兰迪紫"})colors.Items.Add(s);colors.SelectedIndex=list==null?4:list.I("color");panel.Children.Add(U.Field("标记颜色",colors));string operationId=J.NewId();bool busy=false;
+   string initialName=list.S("name");
+   var name=U.Input(initialName);AutomationProperties.SetName(name,"清单名称");panel.Children.Add(U.Field("清单名称",name));
+   int initialColor=list==null?4:ListPalette.IndexOrDefault(list.I("color"));
+   var colors=ListPalette.Picker(initialColor);panel.Children.Add(U.Field("标记颜色",colors));
+   string operationId=J.NewId();bool busy=false;
    var save=U.Button("保存清单",null,"Primary");
    save.Click+=async delegate{
     if(busy)return;
     if(string.IsNullOrWhiteSpace(name.Text)){U.Error(w,new McpException("请填写清单名称。"));return;}
     busy=true;save.IsEnabled=false;
     try{
-     var a=J.Obj("name",name.Text.Trim(),"color",colors.SelectedIndex);
-     a[list==null?"operation_id":"list_id"]=list==null?operationId:list.S("list_id");
-     await repo.CallAsync(list==null?"create_list":"update_list",a);
+     var a=J.Obj();
+     if(list==null||name.Text!=initialName)a["name"]=name.Text.Trim();
+     if(list==null||colors.SelectedIndex!=initialColor)a["color"]=ListPalette.IndexOrDefault(colors.SelectedIndex);
+     if(a.Count>0){
+      a[list==null?"operation_id":"list_id"]=list==null?operationId:list.S("list_id");
+      await repo.CallAsync(list==null?"create_list":"update_list",a);
+     }
     }catch(Exception e){
      U.Error(w,e);
      return;

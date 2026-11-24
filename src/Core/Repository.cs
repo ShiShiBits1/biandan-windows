@@ -20,7 +20,13 @@ namespace Biandan {
   List<TaskItem> viewItems;
   public void Publish(){viewItems=null;if(Changed!=null)Changed();}
   Dictionary<string,object> Snapshot(){return J.Obj("accountScope",Demo?null:viewScope,"tasks",Tasks,"occurrences",Occurrences,"lists",Lists,"focus",Focus,"boardStages",boardStages,"lastSync",LastSync.HasValue?LastSync.Value.ToString("o"):null);}
-  void Load(Dictionary<string,object> data){Tasks=data.Rows("tasks");Occurrences=data.Rows("occurrences");Lists=data.Rows("lists");Focus=data.Rows("focus");boardStages=data.D("boardStages")??J.Obj();DateTime d;LastSync=DateTime.TryParse(data.S("lastSync"),out d)?(DateTime?)d:null;}
+  void Load(Dictionary<string,object> data){
+   Tasks=data.Rows("tasks");Occurrences=data.Rows("occurrences");Lists=data.Rows("lists");
+   // Early demo snapshots stored their list order only in the array.
+   if(Demo)for(int i=0;i<Lists.Count;i++)if(!Lists[i].ContainsKey("sort_index"))Lists[i]["sort_index"]=i;
+   Lists=OrderedLists(Lists);
+   Focus=data.Rows("focus");boardStages=data.D("boardStages")??J.Obj();DateTime d;LastSync=DateTime.TryParse(data.S("lastSync"),out d)?(DateTime?)d:null;
+  }
   public void OpenDemo(){Client.Stop();Demo=true;Connected=false;var saved=Settings.LoadSnapshot(true);if(saved==null){boardStages=J.Obj();LastSync=null;SeedDemo();}else Load(saved);Settings.Set("lastMode","demo");Persist();Publish();}
   public bool OpenCache(){
    Demo=false;Connected=false;cachedCloudAccount=false;
@@ -82,11 +88,22 @@ namespace Biandan {
    object data;
    var rows=result.Rows("items");
    var ids=new HashSet<string>(StringComparer.Ordinal);
-   if(!result.TryGetValue("items",out data)||!(data is IList)||((IList)data).Count!=rows.Count||
-      rows.Any(row=>string.IsNullOrWhiteSpace(row.S("name"))||row.S("list_id")==""||!ids.Add(row.S("list_id"))))
-    throw new McpException("云端清单返回格式异常，桌面已保留上次读取的清单。");
+   const string invalid="云端清单返回格式异常，桌面已保留上次读取的清单。";
+   if(!result.TryGetValue("items",out data)||!(data is IList)||((IList)data).Count!=rows.Count)throw new McpException(invalid);
+   foreach(var row in rows){
+    string id=row.DecimalId("list_id");
+    if(id==null||string.IsNullOrWhiteSpace(row.S("name"))||!ids.Add(id))throw new McpException(invalid);
+    row["list_id"]=id;
+   }
    if(!ids.Contains("1"))rows.Insert(0,J.Obj("list_id","1","name","未分类","color",0,"sort_index",0));
-   return rows;
+   return OrderedLists(rows);
+  }
+
+  internal static List<Dictionary<string,object>> OrderedLists(IEnumerable<Dictionary<string,object>> rows){
+   // MCP splits favoritesColor into the sort position and its two-digit color index.
+   return rows.OrderBy(row=>row.I("sort_index")).ThenBy(row=>row.I("color"))
+    .ThenBy(row=>{long id;return long.TryParse(row.S("list_id"),out id)?id:long.MaxValue;})
+    .ThenBy(row=>row.S("list_id"),StringComparer.Ordinal).ToList();
   }
 
   bool ApplyRefreshedLists(List<Dictionary<string,object>> lists){
@@ -94,6 +111,11 @@ namespace Biandan {
    Lists=lists;
    Publish();
    return true;
+  }
+
+  static bool HaveParentTasks(List<Dictionary<string,object>> tasks,List<Dictionary<string,object>> occurrences){
+   var ids=new HashSet<string>(tasks.Select(task=>task.S("task_id")),StringComparer.Ordinal);
+   return occurrences.All(occurrence=>ids.Contains(occurrence.S("task_id")));
   }
 
   async Task SyncCoreAsync(bool sendPending=true){
@@ -114,6 +136,12 @@ namespace Biandan {
 
     var tasks=await Client.AllAsync("search_tasks");
     var occurrences=await Client.AllAsync("list_occurrences",OccurrenceQuery());
+    if(!HaveParentTasks(tasks,occurrences)){
+     // A different device can create a task after we read its definition table.
+     tasks=await Client.AllAsync("search_tasks");
+     if(!HaveParentTasks(tasks,occurrences))
+      throw new McpException("有执行记录尚未读到对应待办，请稍后重新同步。");
+    }
     var focus=await Client.AllAsync("list_focus",J.Obj("start_date",EarliestSyncDate,"end_date",LatestSyncDate));
     EnsureQueueAccount();
     if(Demo){var saved=Settings.LoadSnapshot(false);boardStages=saved!=null&&saved.S("accountScope",Settings.InitialScope)==scope?(saved.D("boardStages")??J.Obj()):J.Obj();}
@@ -245,24 +273,18 @@ namespace Biandan {
      var last=DemoCalendar.Date(a.S("end_date",J.Date(first.AddDays(span))));
      if(last<first)throw new McpException("结束日期不能早于开始日期。");
      if(detached){
-      t=J.Clone(t);t["task_id"]=J.NewId();t["repeat_type"]=0;t["recurrence"]=null;t["is_habit"]=false;
-      Tasks.Add(t);o["task_id"]=t["task_id"];
+      string seriesId=t.S("task_id");
+      t=J.Clone(t);t["task_id"]=J.NewId();t["repeat_type"]=0;t["recurrence"]=null;t["is_habit"]=false;t["completed"]=false;
+      Tasks.Add(t);o["task_id"]=t["task_id"];RecomputeTaskCompletion(seriesId);
      }
      o["start_date"]=t["start_date"]=J.Date(first);o["end_date"]=t["end_date"]=J.Date(last);
      foreach(var k in new[]{"start_time","end_time"})if(a.ContainsKey(k))o[k]=t[k]=a[k];
      t["undated"]=false;return o;
     }
     case "clear_schedule":t["undated"]=true;t["time_reminder"]=null;return t;
-    case "complete_occurrence":o["status"]="completed";o["completed_count"]=t.I("target_count",1);o["completed_at"]=a.S("completed_at",DateTime.Now.ToString("yyyy-MM-ddTHH:mm"));o["completed_subtask_indices"]=Enumerable.Range(0,t.Strings("subtasks").Count).ToArray();return o;
-    case "complete_subtask":case "change_progress":{
-     string action=name=="complete_subtask"?"check":a.S("action");
-     if(action=="reopen"||action=="restore"){o["status"]="pending";o["completed_count"]=0;o["completed_subtask_indices"]=new int[0];o["completed_at"]=null;}
-     else if(action=="abandon")o["status"]="abandoned";
-     else if(action=="set_count"){o["completed_count"]=a.I("count");o["status"]=a.I("count")>=t.I("target_count",1)?"completed":"pending";if(o.S("status")=="completed")o["completed_at"]=DateTime.Now.ToString("yyyy-MM-ddTHH:mm");}
-     else{var indices=o.Strings("completed_subtask_indices").Select(int.Parse).ToList();int index=a.I("subtask_index");if(action=="uncheck_subtask")indices.Remove(index);else if(!indices.Contains(index))indices.Add(index);o["completed_subtask_indices"]=indices;o["completed_count"]=indices.Count;o["status"]=indices.Count>=t.Strings("subtasks").Count?"completed":"pending";if(o.S("status")=="completed")o["completed_at"]=DateTime.Now.ToString("yyyy-MM-ddTHH:mm");}
-     return o;
-    }
-    case "edit_task_goal":if(a.ContainsKey("subtasks")){t["subtasks"]=a["subtasks"];t["target_count"]=Math.Max(1,a.Strings("subtasks").Count);}else{t["subtasks"]=new string[0];t["target_count"]=a["target_count"];}foreach(var x in Occurrences.Where(x=>x.S("task_id")==tid))x["target_count"]=t["target_count"];return t;
+    case "complete_occurrence":case "complete_subtask":case "change_progress":
+     return UpdateDemoProgress(name,t,o,a);
+    case "edit_task_goal":return EditDemoGoal(t,a);
     case "set_time_reminder":t["time_reminder"]=a.ContainsKey("enabled")&&!a.B("enabled")?null:J.Obj("date",a.S("reminder_date"),"time",a.S("reminder_time"));return t;
     case "set_location":{
      if(a.B("clear")){t["location"]=null;t["has_location_reminder"]=false;return t;}
@@ -276,10 +298,18 @@ namespace Biandan {
      var affected=Occurrences.Where(x=>x.S("task_id")==tid&&(a.S("scope")!="occurrence"||x.S("occurrence_id")==oid)).ToList();
      bool deleteDefinition=a.S("scope")!="occurrence"||t.I("repeat_type")==0;
      if(a.B("preview"))return J.Obj("preview",true,"occurrence_ids",affected.Select(x=>x.S("occurrence_id")).ToArray(),"deletes_task_definition",deleteDefinition);
-     Occurrences.RemoveAll(x=>affected.Contains(x));if(deleteDefinition)Tasks.Remove(t);return J.Obj("deleted",true);
+     Occurrences.RemoveAll(x=>affected.Contains(x));if(deleteDefinition)Tasks.Remove(t);else RecomputeTaskCompletion(tid);return J.Obj("deleted",true);
     }
-    case "create_list":var l=J.Obj("list_id",a.S("operation_id",J.NewId()),"name",a.S("name"),"color",a.I("color"),"sort_index",Lists.Count);Lists.Add(l);return l;
-    case "update_list":var list=Lists.First(x=>x.S("list_id")==a.S("list_id"));foreach(var k in new[]{"name","color","sort_index"})if(a.ContainsKey(k))list[k]=a[k];return list;
+    case "create_list":{
+     int next=Lists.Select(row=>row.I("sort_index")).DefaultIfEmpty(0).Max()+1;
+     var list=J.Obj("list_id",a.S("operation_id",J.NewId()),"name",a.S("name"),"color",a.I("color"),"sort_index",a.I("sort_index",next));
+     Lists.Add(list);Lists=OrderedLists(Lists);return list;
+    }
+    case "update_list":{
+     var list=Lists.First(x=>x.S("list_id")==a.S("list_id"));
+     foreach(var k in new[]{"name","color","sort_index"})if(a.ContainsKey(k))list[k]=a[k];
+     Lists=OrderedLists(Lists);return list;
+    }
     case "delete_list":var tasks=Tasks.Where(x=>x.S("list_id")==a.S("list_id")).ToList();if(a.B("preview"))return J.Obj("affected_tasks",tasks);foreach(var task in tasks)task["list_id"]="1";Lists.RemoveAll(x=>x.S("list_id")==a.S("list_id"));return J.Obj("deleted",true);
     case "create_focus":var f=J.Clone(a);DateTime started=DateTime.Parse(a.S("started_at"));f["focus_id"]=((started.ToUniversalTime().Ticks-621355968000000000L)/10000).ToString();f["date"]=J.Date(started);Focus.Add(f);return f;
     case "update_focus":var focus=Focus.First(x=>x.S("focus_id")==a.S("focus_id"));foreach(var k in new[]{"title","good_count","bad_count"})if(a.ContainsKey(k))focus[k]=a[k];return focus;
@@ -313,7 +343,7 @@ namespace Biandan {
   }
 
   void SeedDemo(){
-   Lists=new List<Dictionary<string,object>>{J.Obj("list_id","1","name","未分类","color",0),J.Obj("list_id","2","name","工作计划","color",4),J.Obj("list_id","3","name","生活日常","color",2),J.Obj("list_id","4","name","自我成长","color",8)};
+   Lists=new List<Dictionary<string,object>>{J.Obj("list_id","1","name","未分类","color",0,"sort_index",0),J.Obj("list_id","2","name","工作计划","color",4,"sort_index",1),J.Obj("list_id","3","name","生活日常","color",2,"sort_index",2),J.Obj("list_id","4","name","自我成长","color",8,"sort_index",3)};
    Tasks.Clear();Occurrences.Clear();Focus.Clear();
    AddSeed("整理本周的工作计划","2",0,"09:30",true,false,new[]{"回顾上周进展","确定本周重点","安排执行时间"},"先做重要的事，给每一天留一点余地。",false);
    AddSeed("完成秋冬系列主图设计","2",0,"14:00",true,false,new string[0],"梳理视觉方向，检查商品结构与色彩。",false);

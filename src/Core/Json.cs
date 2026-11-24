@@ -11,6 +11,13 @@ namespace Biandan {
   public static Dictionary<string,object> Parse(string v) { return new JavaScriptSerializer { MaxJsonLength=32*1024*1024, RecursionLimit=100 }.Deserialize<Dictionary<string,object>>(v); }
   public static Dictionary<string,object> Obj(params object[] pairs) { var d=new Dictionary<string,object>(); for(int i=0;i<pairs.Length;i+=2)d[(string)pairs[i]]=pairs[i+1]; return d; }
   public static string S(this IDictionary<string,object> d,string k,string fallback="") { object v; return d!=null&&d.TryGetValue(k,out v)&&v!=null?Convert.ToString(v):fallback; }
+  internal static string DecimalId(this IDictionary<string,object> row,string field){
+   object value;
+   long id;
+   if(!row.TryGetValue(field,out value)||!(value is string||value is int||value is long)||
+      !long.TryParse(Convert.ToString(value,CultureInfo.InvariantCulture),NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out id))return null;
+   return id.ToString(CultureInfo.InvariantCulture);
+  }
   public static bool B(this IDictionary<string,object> d,string k) { object v; return d!=null&&d.TryGetValue(k,out v)&&v!=null&&Convert.ToBoolean(v); }
   public static int I(this IDictionary<string,object> d,string k,int fallback=0) { int n;return int.TryParse(d.S(k),out n)?n:fallback; }
   public static Dictionary<string,object> D(this IDictionary<string,object> d,string k) { object v;return d!=null&&d.TryGetValue(k,out v)?v as Dictionary<string,object>:null; }

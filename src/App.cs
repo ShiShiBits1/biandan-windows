@@ -587,12 +587,16 @@ namespace Biandan {
    VerifyTaskListVirtualization();
    VerifyTaskFocusButton();
    VerifySyncSettings();
+   VerifyFocusDurations();
+   await VerifyCloudPaginationAsync();
+   await VerifyListPresentationAsync();
    await VerifyListNavigationAsync();
    VerifyBulkActions();
    VerifyBundledAssistantSkill();
    await VerifyAssistantTaskWritesAsync();
    await VerifyAppearanceAndAssistantAsync(dir);
    await VerifyDemoAsync();
+   VerifyDemoProgress();
    await VerifyTaskRemarksAsync(dir);
    await VerifyWeeklyPlanAsync(dir);
    await VerifyTaskBoardsAsync(dir);

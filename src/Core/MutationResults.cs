@@ -48,9 +48,7 @@ namespace Biandan {
      string id=result.S("list_id");
      if(id=="")return false;
      Upsert(Lists,"list_id",id,result);
-     Lists=Lists.OrderBy(list=>list.I("sort_index")).ThenBy(list=>{
-      long value;return long.TryParse(list.S("list_id"),out value)?value:long.MaxValue;
-     }).ToList();
+     Lists=OrderedLists(Lists);
      return true;
     }
     case "delete_list":

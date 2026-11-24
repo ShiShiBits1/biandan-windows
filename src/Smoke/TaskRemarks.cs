@@ -65,6 +65,12 @@ namespace Biandan {
     if(current().Task.S("remark")!=plain)throw new InvalidOperationException("The new task lost its plain remark.");
     // A remark originating on another client can use LF instead of Windows CRLF.
     await Repo.CallAsync("update_task",J.Obj("task_id",id,"remark",legacy));
+    // A mobile title may contain spaces or a line break within a single subtask.
+    var originalTitles=new[]{"  保留空格  ","复核样衣\n与色卡"};
+    var existing=current();
+    existing.Task["subtasks"]=originalTitles;existing.Task["target_count"]=2;
+    existing.Occurrence["target_count"]=2;existing.Occurrence["completed_count"]=1;
+    existing.Occurrence["completed_subtask_indices"]=new[]{1};
     SaveRemarkEditor(current(),editor=>{
      ToggleRemarkPreview(editor,"预览备注");ToggleRemarkPreview(editor,"编辑备注原文");
      if(editor.BuildCreate().S("remark")!=legacy)throw new InvalidOperationException("Preview changed an existing remark's source.");
@@ -73,6 +79,9 @@ namespace Biandan {
      CheckRenderedRemark(editor,"备注预览");
     });
     if(current().Task.S("remark")!=markdown)throw new InvalidOperationException("Saving from preview must keep exact Markdown source.");
+    if(!current().Task.Strings("subtasks").SequenceEqual(originalTitles)||
+       !current().Occurrence.Strings("completed_subtask_indices").SequenceEqual(new[]{"1"}))
+     throw new InvalidOperationException("Editing a remark changed stored subtask positions or progress.");
     detail=new TaskDetail(Desktop,Repo,current());detail.Show();detail.UpdateLayout();
     CheckRenderedRemark(detail,"待办备注");
     await Task.Delay(250);
