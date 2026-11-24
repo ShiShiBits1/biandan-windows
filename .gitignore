@@ -1,0 +1,13 @@
+artifacts/
+dist/
+obj/
+.test-state/
+*.user
+*.log
+.npm-cache/
+/release/
+/reference/
+/skill/
+/mcp_server/
+/icons/
+/src/Core/check.txt
