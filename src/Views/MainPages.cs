@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -8,23 +7,19 @@ using Microsoft.Win32;
 namespace Biandan {
  public sealed partial class MainView{
   int focusLimit=30;
-  IEnumerable<Dictionary<string,object>> TodaysFocus(){
-   string date=J.Today;
-   return repo.Focus.Where(record=>record.S("date")==date);
-  }
-
-  static long CompletedTomatoes(IEnumerable<Dictionary<string,object>> records){
-   return records.Sum(record=>(long)record.I("good_count"));
-  }
 
   void RenderFocus(){
    var p=U.Stack();var hero=U.Stack();hero.HorizontalAlignment=HorizontalAlignment.Center;hero.Margin=new Thickness(0,22,0,18);
    hero.Children.Add(U.Text("把这一刻，还给自己",21,"#6E5638",true));U.Gap(hero,17);focusClock=U.Text("25:00",72,"#8D560B",true);focusClock.HorizontalAlignment=HorizontalAlignment.Center;hero.Children.Add(focusClock);U.Gap(hero,13);
    if(app.FocusStarted.HasValue){var caption=U.Text(app.FocusTitle,13,"#7B6548");caption.HorizontalAlignment=HorizontalAlignment.Center;hero.Children.Add(caption);U.Gap(hero,20);var actions=U.Stack(true);actions.HorizontalAlignment=HorizontalAlignment.Center;
-    actions.Children.Add(U.Button("保存本次专注",async()=>{await app.RunAction(async()=>await app.SaveFocusAsync());},"Primary"));var discard=U.Button("放弃本次",()=>{if(U.Confirm(this,"放弃本次专注","本次计时将清除，不写入专注记录。","放弃"))app.DiscardFocus();});discard.Margin=new Thickness(10,0,0,0);actions.Children.Add(discard);hero.Children.Add(actions);
-   }else{var fields=U.Grid("230,16,90");var name=U.Input("专注当下");name.ToolTip="本次专注名称";var duration=new ComboBox();foreach(var n in new[]{15,25,45,60,90})duration.Items.Add(n+" 分钟");duration.SelectedIndex=1;U.Place(fields,name);U.Place(fields,duration,2);hero.Children.Add(fields);U.Gap(hero,18);var start=U.Button("开始一段专注",()=>{app.StartFocus(new[]{15,25,45,60,90}[duration.SelectedIndex],string.IsNullOrWhiteSpace(name.Text)?"专注当下":name.Text.Trim());},"Primary");start.HorizontalAlignment=HorizontalAlignment.Center;hero.Children.Add(start);}
+    var save=U.Button(app.SavingFocus?"正在保存…":"保存本次专注",async()=>await app.RunAction(app.SaveFocusAsync),"Primary");
+    var discard=U.Button("放弃本次",()=>app.ConfirmDiscardFocus(this));
+    save.IsEnabled=discard.IsEnabled=!app.SavingFocus;
+    discard.Margin=new Thickness(10,0,0,0);
+    actions.Children.Add(save);actions.Children.Add(discard);hero.Children.Add(actions);
+   }else{var fields=U.Grid("230,16,90");var name=U.Input("专注当下");name.ToolTip="本次专注名称";var duration=new ComboBox();foreach(var n in FocusDuration.Presets)duration.Items.Add(n+" 分钟");duration.SelectedIndex=1;U.Place(fields,name);U.Place(fields,duration,2);hero.Children.Add(fields);U.Gap(hero,18);var start=U.Button("开始一段专注",()=>{app.StartFocus(FocusDuration.Presets[duration.SelectedIndex],string.IsNullOrWhiteSpace(name.Text)?"专注当下":name.Text.Trim());},"Primary");start.HorizontalAlignment=HorizontalAlignment.Center;hero.Children.Add(start);}
    p.Children.Add(U.Card(hero,"#FEEDD0",20,new Thickness(25)));TickFocus();U.Gap(p,24);
-   var stats=U.Grid("*,*,*");var today=TodaysFocus().ToList();U.Place(stats,Stat("今日专注",FocusDuration.Format(today.Sum(record=>FocusDuration.Minutes(record)))+" 分钟","#8D560B"));U.Place(stats,Stat("完成番茄",CompletedTomatoes(today).ToString(),"#C2A47C"),1);U.Place(stats,Stat("累计记录",repo.Focus.Count.ToString(),"#7B6548"),2);p.Children.Add(stats);U.Gap(p,23);
+   var stats=U.Grid("*,*,*");var today=FocusDuration.Today(repo.Focus).ToList();U.Place(stats,Stat("今日专注",FocusDuration.Format(today.Sum(record=>FocusDuration.Minutes(record)))+" 分钟","#8D560B"));U.Place(stats,Stat("完成番茄",FocusDuration.Tomatoes(today).ToString(),"#C2A47C"),1);U.Place(stats,Stat("累计记录",repo.Focus.Count.ToString(),"#7B6548"),2);p.Children.Add(stats);U.Gap(p,23);
    var heading=U.Grid("*,Auto");U.Place(heading,U.Text("专注记录",15,"#6E5638",true));U.Place(heading,U.Button("＋ 补记专注",()=>FocusEditor.Show(this,repo,null),"Secondary"),1);p.Children.Add(heading);U.Gap(p,13);
    foreach(var f in repo.Focus.OrderByDescending(x=>x.S("started_at")).Take(focusLimit)){
     var focus=f;var row=U.Grid("*,90,Auto,Auto");var text=U.Stack();text.Children.Add(U.Text(f.S("title","专注时刻"),13,"#6E5638",true));U.Gap(text,6);text.Children.Add(U.Text(f.S("date")+"  "+(f.S("started_at").Length>=16?f.S("started_at").Substring(11,5):""),11,"#897859"));U.Place(row,text);U.Place(row,U.Text(FocusDuration.Format(FocusDuration.Minutes(f))+" 分钟",14,"#6E5638",true),1);
@@ -35,15 +30,45 @@ namespace Biandan {
    body.Content=new ScrollViewer{Content=p};
   }
   public void TickFocus(){
-   if(focusClock==null)return;if(app.FocusEnd.HasValue){var left=app.FocusEnd.Value-DateTime.Now;if(left<TimeSpan.Zero)left=TimeSpan.Zero;focusClock.Text=((int)left.TotalMinutes).ToString("00")+":"+left.Seconds.ToString("00");}
-   else focusClock.Text=app.FocusStarted.HasValue?"完成了":app.FocusMinutes.ToString("00")+":00";
+   if(focusClock==null)return;
+   if(app.FocusEnd.HasValue)focusClock.Text=App.FormatFocusClock(app.FocusSecondsLeft);
+   else focusClock.Text=app.FocusStarted.HasValue?"完成了":App.FormatFocusClock(app.FocusMinutes*60);
   }
+  internal void RefreshWidgetsPage(){
+   if(page=="widgets")RenderWidgets();
+  }
+
   void RenderWidgets(){
    var p=U.Stack();var intro=U.Stack();intro.Children.Add(U.Text("把重要的事，留在桌面。",23,"#513D24",true));U.Gap(intro,10);intro.Children.Add(U.Text("独立窗口，轻巧常驻。拖到顺手的位置，按你的节奏安排。",12,"#7B6548"));p.Children.Add(U.Card(intro,"#FFF1D2",18,new Thickness(25)));U.Gap(p,24);
-   var grid=U.Grid("*,20,*");var cal=U.Stack();var mini=new MonthCalendar(repo,DateTime.Today,DateTime.Today,null);cal.Children.Add(U.Card(mini,"#FFFAF0",18,new Thickness(23)));U.Gap(cal,18);cal.Children.Add(U.Text("桌面日历",18,"#6E5638",true));U.Gap(cal,9);var cd=U.Text("月历与每日安排一眼可见，点击日期查看待办。",12,"#7B6548");cd.TextWrapping=TextWrapping.Wrap;cal.Children.Add(cd);U.Gap(cal,18);cal.Children.Add(U.Button(app.Widgets.ContainsKey("calendar")?"关闭日历小组件":"添加到桌面",()=>{app.ToggleWidget("calendar");RenderWidgets();},"Primary"));U.Place(grid,cal);
+   var grid=U.Grid("*,20,*,20,*");var cal=U.Stack();var mini=new MonthCalendar(repo,DateTime.Today,DateTime.Today,null);cal.Children.Add(U.Card(mini,"#FFFAF0",18,new Thickness(23)));U.Gap(cal,18);cal.Children.Add(U.Text("桌面日历",18,"#6E5638",true));U.Gap(cal,9);var cd=U.Text("月历与每日安排一眼可见，点击日期查看待办。",12,"#7B6548");cd.TextWrapping=TextWrapping.Wrap;cal.Children.Add(cd);U.Gap(cal,18);cal.Children.Add(U.Button(app.Widgets.ContainsKey("calendar")?"关闭日历小组件":"添加到桌面",()=>{app.ToggleWidget("calendar");},"Primary"));U.Place(grid,cal);
    var todo=U.Stack();var preview=U.Stack();preview.Children.Add(U.Text("今天，也要从容一点",19,"#513D24",true));U.Gap(preview,10);preview.Children.Add(U.Text(DateTime.Today.ToString("M 月 d 日")+"  ·  我的待办",11,"#7B6548"));U.Gap(preview,20);
    foreach(var task in repo.Items().Where(t=>t.OnDate(J.Today)).Take(4)){var row=U.Grid("28,*");var cb=new CheckBox{IsChecked=task.Completed,IsHitTestVisible=false};U.Place(row,cb);var tt=U.Text(task.Title,12,"#6E5638");U.Place(row,tt,1);row.Margin=new Thickness(0,9,0,9);preview.Children.Add(row);}
-   if(repo.Items().Count==0)preview.Children.Add(U.Text("待办会显示在这里",13,"#7B6548"));var previewCard=U.Card(preview,"#FFFAF0",18,new Thickness(23));previewCard.MinHeight=325;todo.Children.Add(previewCard);U.Gap(todo,18);todo.Children.Add(U.Text("桌面待办",18,"#6E5638",true));U.Gap(todo,9);var td=U.Text("直接勾选、快速新增，完成的小事都算数。",12,"#7B6548");td.TextWrapping=TextWrapping.Wrap;todo.Children.Add(td);U.Gap(todo,18);todo.Children.Add(U.Button(app.Widgets.ContainsKey("todo")?"关闭待办小组件":"添加到桌面",()=>{app.ToggleWidget("todo");RenderWidgets();},"Primary"));U.Place(grid,todo,2);p.Children.Add(grid);
+   if(repo.Items().Count==0)preview.Children.Add(U.Text("待办会显示在这里",13,"#7B6548"));var previewCard=U.Card(preview,"#FFFAF0",18,new Thickness(23));previewCard.MinHeight=325;todo.Children.Add(previewCard);U.Gap(todo,18);todo.Children.Add(U.Text("桌面待办",18,"#6E5638",true));U.Gap(todo,9);var td=U.Text("直接勾选、快速新增，完成的小事都算数。",12,"#7B6548");td.TextWrapping=TextWrapping.Wrap;todo.Children.Add(td);U.Gap(todo,18);todo.Children.Add(U.Button(app.Widgets.ContainsKey("todo")?"关闭待办小组件":"添加到桌面",()=>{app.ToggleWidget("todo");},"Primary"));U.Place(grid,todo,2);
+   var focus=U.Stack();
+   var focusPreview=U.Grid("*","*,Auto,Auto,*");
+   var clock=U.Text("25:00",42,"#8D560B",true);
+   clock.HorizontalAlignment=HorizontalAlignment.Center;
+   U.Place(focusPreview,clock,0,1);
+   var startPreview=U.Pill("开始专注");
+   startPreview.HorizontalAlignment=HorizontalAlignment.Center;
+   startPreview.Margin=new Thickness(0,10,0,0);
+   U.Place(focusPreview,startPreview,0,2);
+   var focusCard=U.Card(focusPreview,"#FFFAF0",18,new Thickness(23));
+   focusCard.MinHeight=325;
+   focus.Children.Add(focusCard);
+   U.Gap(focus,18);
+   focus.Children.Add(U.Text("桌面番茄钟",18,"#6E5638",true));
+   U.Gap(focus,9);
+   var description=U.Text("在桌面开始倒计时，结束后直接保存专注记录。",12,"#7B6548");
+   description.TextWrapping=TextWrapping.Wrap;
+   focus.Children.Add(description);
+   U.Gap(focus,18);
+   bool focusOpen=app.Widgets.ContainsKey("focus");
+   var toggleFocus=U.Button(focusOpen?"关闭番茄钟小组件":"添加到桌面",()=>app.ToggleWidget("focus"),"Primary");
+   System.Windows.Automation.AutomationProperties.SetName(toggleFocus,focusOpen?"关闭番茄钟小组件":"添加番茄钟小组件");
+   focus.Children.Add(toggleFocus);
+   U.Place(grid,focus,4);
+   p.Children.Add(grid);
    U.Gap(p,26);var hint=U.Text("小组件右上角可切换置顶，拖动顶部移动位置。关闭主窗口后，小组件仍可继续使用。",12,"#7B6548");hint.TextWrapping=TextWrapping.Wrap;p.Children.Add(hint);body.Content=new ScrollViewer{Content=p};
   }
   void RenderSettings(){
@@ -52,7 +77,7 @@ namespace Biandan {
    U.Place(account,U.Button(repo.Demo?"登录账号":"退出账号",()=>LeaveAccount(),"Secondary"),1);p.Children.Add(U.Card(account,"#FFFAF0",16,new Thickness(22)));U.Gap(p,20);
    p.Children.Add(BuildThemeSettings());U.Gap(p,20);
  var settings=U.Stack();settings.Children.Add(U.Text("桌面与通知",15,"#6E5638",true));U.Gap(settings,17);
-   settings.Children.Add(SettingToggle("关闭主窗口后留在系统托盘","日历、待办小组件和计时继续运行。","minimizeToTray",true));settings.Children.Add(new Separator());
+   settings.Children.Add(SettingToggle("关闭主窗口后留在系统托盘","桌面小组件和番茄钟计时继续运行。","minimizeToTray",true));settings.Children.Add(new Separator());
    settings.Children.Add(SettingToggle("桌面提醒","在任务提醒时间和专注结束时显示通知。程序需保持运行。","notifications",true));settings.Children.Add(new Separator());
    var auto=new CheckBox{Content="登录 Windows 后自动启动",IsChecked=IsAutostart(),Margin=new Thickness(0,12,0,12)};auto.Click+=delegate{try{using(var key=Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")){if(auto.IsChecked==true)key.SetValue("BiandanDesktop","\""+System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName+"\" --autostart");else key.DeleteValue("BiandanDesktop",false);}}catch(Exception e){auto.IsChecked=IsAutostart();U.Error(this,e);}};settings.Children.Add(auto);
    U.Gap(settings,11);

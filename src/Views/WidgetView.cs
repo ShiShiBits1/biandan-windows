@@ -5,17 +5,27 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 namespace Biandan {
- public sealed class WidgetView:Window {
+ public sealed partial class WidgetView:Window {
   readonly App app;readonly Repository repo;readonly string kind;readonly ContentControl content;readonly TextBlock status;readonly Border background;readonly Grid foreground;DateTime selected=DateTime.Today,month=DateTime.Today;bool locked;
   public WidgetView(App application,string widgetKind){
-   app=application;repo=app.Repo;kind=widgetKind;Title=kind=="calendar"?"便单 · 桌面日历":"便单 · 桌面待办";U.Configure(this,kind=="calendar"?340:370,kind=="calendar"?590:485,10);ResizeMode=ResizeMode.NoResize;ShowInTaskbar=false;Height=Math.Min(Height,SystemParameters.WorkArea.Height-30);
+   app=application;repo=app.Repo;kind=widgetKind;
+   bool calendar=kind=="calendar",pomodoro=kind=="focus";
+   string labelText=calendar?"桌面日历":pomodoro?"桌面番茄钟":"我的一天";
+   Title="便单 · "+(kind=="todo"?"桌面待办":labelText);
+   U.Configure(this,calendar?340:pomodoro?322:370,calendar?590:pomodoro?280:485,10);
+   ResizeMode=ResizeMode.NoResize;ShowInTaskbar=false;Height=Math.Min(Height,SystemParameters.WorkArea.Height-30);
    Topmost=app.Preferences.GetBool("widget."+kind+".pinned");locked=app.Preferences.GetBool("widget."+kind+".locked");
-   var g=foreground=U.Grid("*","44,*,39");var head=U.Grid("*,30,30,30");head.Background=new SolidColorBrush(Color.FromArgb(1,0,0,0));head.Margin=new Thickness(20,2,11,0);var label=U.Text(kind=="calendar"?"桌面日历":"我的一天",12,"#6E5638",true);U.Place(head,label);
+   var g=foreground=U.Grid("*","44,*,39");var head=U.Grid("*,30,30,30");head.Background=new SolidColorBrush(Color.FromArgb(1,0,0,0));head.Margin=new Thickness(20,2,11,0);var label=U.Text(labelText,12,"#6E5638",true);U.Place(head,label);
    head.MouseLeftButtonDown+=delegate(object sender,MouseButtonEventArgs e){if(!locked&&e.ChangedButton==MouseButton.Left&&!(e.Source is Button))try{DragMove();}catch(InvalidOperationException){}};
    var pin=U.IconButton("\uE718",Topmost?"取消置顶":"置顶",null);((TextBlock)pin.Content).Foreground=U.C(Topmost?"#8D560B":"#897859");pin.Click+=delegate{Topmost=!Topmost;app.Preferences.Set("widget."+kind+".pinned",Topmost);((TextBlock)pin.Content).Foreground=U.C(Topmost?"#8D560B":"#897859");pin.ToolTip=Topmost?"取消置顶":"置顶";};U.Place(head,pin,1);
    var lockBtn=U.IconButton(locked?"\uE72E":"\uE785","锁定 / 解锁位置",null);lockBtn.Click+=delegate{locked=!locked;app.Preferences.Set("widget."+kind+".locked",locked);lockBtn.Content=U.Icon(locked?"\uE72E":"\uE785");};U.Place(head,lockBtn,2);U.Place(head,U.IconButton("\uE8BB","关闭小组件",()=>Close()),3);U.Place(g,head);
    content=new ContentControl{Margin=new Thickness(20,6,20,0),HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Top};U.Place(g,content,0,1);
-   var footer=U.Grid("*,Auto");footer.Margin=new Thickness(21,0,16,3);status=U.Text("",10,"#6E5638");U.Place(footer,status);var open=U.Button(kind=="calendar"?"打开日历  ↗":"打开便单  ↗",()=>{app.ShowDesktop();if(kind=="calendar"&&app.Desktop!=null)app.Desktop.OpenCalendarDate(selected);});open.FontSize=10;open.Padding=new Thickness(5,4,5,4);U.Place(footer,open,1);U.Place(g,footer,0,2);
+   var footer=U.Grid("*,Auto");footer.Margin=new Thickness(21,0,16,3);status=U.Text("",10,"#6E5638");U.Place(footer,status);var open=U.Button(calendar?"打开日历  ↗":pomodoro?"打开专注时刻  ↗":"打开便单  ↗",()=>{
+    app.ShowDesktop();
+    if(app.Desktop==null||!app.Desktop.IsVisible)return;
+    if(calendar)app.Desktop.OpenCalendarDate(selected);
+    if(pomodoro)app.Desktop.Navigate("focus");
+   });open.FontSize=10;open.Padding=new Thickness(5,4,5,4);U.Place(footer,open,1);U.Place(g,footer,0,2);
    var options=Motion.Menu();
    var appearance=new MenuItem{Header="小组件透明度…"};
    appearance.Click+=delegate{app.ShowDesktop();if(app.Desktop!=null)app.Desktop.Navigate("settings");};
@@ -28,7 +38,8 @@ namespace Biandan {
    Content=layers;
    SetBackgroundTransparency(app.Preferences.WidgetTransparency);
    repo.Changed+=Changed;Closed+=delegate{repo.Changed-=Changed;app.Preferences.Values["widget."+kind+".x"]=Left;app.Preferences.Values["widget."+kind+".y"]=Top;app.Preferences.Save();};
-   Loaded+=delegate{double x,y;var work=SystemParameters.WorkArea;if(double.TryParse(app.Preferences.Values.S("widget."+kind+".x"),out x)&&double.TryParse(app.Preferences.Values.S("widget."+kind+".y"),out y)&&x+Width>SystemParameters.VirtualScreenLeft&&x<SystemParameters.VirtualScreenLeft+SystemParameters.VirtualScreenWidth&&y+Height>SystemParameters.VirtualScreenTop&&y<SystemParameters.VirtualScreenTop+SystemParameters.VirtualScreenHeight){Left=x;Top=y;}else{Left=work.Right-Width-20;Top=work.Top+(kind=="calendar"?30:Height+45);if(Top+Height>work.Bottom)Top=work.Bottom-Height-15;}};
+   Loaded+=delegate{double x,y;var work=SystemParameters.WorkArea;if(double.TryParse(app.Preferences.Values.S("widget."+kind+".x"),out x)&&double.TryParse(app.Preferences.Values.S("widget."+kind+".y"),out y)&&x+Width>SystemParameters.VirtualScreenLeft&&x<SystemParameters.VirtualScreenLeft+SystemParameters.VirtualScreenWidth&&y+Height>SystemParameters.VirtualScreenTop&&y<SystemParameters.VirtualScreenTop+SystemParameters.VirtualScreenHeight){Left=x;Top=y;}else{Left=pomodoro?work.Left+20:work.Right-Width-20;Top=pomodoro?work.Bottom-Height-20:work.Top+(calendar?30:Height+45);if(Top+Height>work.Bottom)Top=work.Bottom-Height-15;}};
+   if(pomodoro)content.Content=new ScrollViewer{Content=BuildPomodoro(),HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
    Render();
   }
   public void SetBackgroundTransparency(int percent){
@@ -45,6 +56,7 @@ namespace Biandan {
   void Changed(){Render();}
   void Render(){
    status.Text=repo.Demo?"离线体验":repo.Connected?"与云端同步":"离线缓存";
+   if(kind=="focus"){RefreshPomodoro();return;}
    var panel=U.Stack();
    if(kind=="calendar"){
     var hero=U.Grid("*,Auto");var date=U.Stack();date.Children.Add(U.Text(selected.ToString("M 月 d 日"),25,"#6E5638",true));U.Gap(date,5);date.Children.Add(U.Text(new[]{"星期日","星期一","星期二","星期三","星期四","星期五","星期六"}[(int)selected.DayOfWeek],11,"#7B6548"));U.Place(hero,date);var today=U.Button("今天",()=>{selected=month=DateTime.Today;Render();},"Secondary");today.VerticalAlignment=VerticalAlignment.Center;today.Padding=new Thickness(9,4,9,4);U.Place(hero,today,1);panel.Children.Add(hero);U.Gap(panel,8);

@@ -26,7 +26,7 @@ namespace Biandan {
    skippedRows=items.Where(t=>t.Abandoned).ToList();
    pendingCount.Text=activeRows.Count.ToString();
    completedCount.Text=completedRows.Count.ToString();
-   tomatoCount.Text=CompletedTomatoes(TodaysFocus()).ToString();
+   tomatoCount.Text=FocusDuration.Tomatoes(FocusDuration.Today(repo.Focus)).ToString();
    totalCount.Text=items.Count+" 项";
    if(quickInput!=null)quickInput.IsEnabled=repo.CanWrite;
    completedGroup.Header="已完成  ·  "+completedRows.Count;

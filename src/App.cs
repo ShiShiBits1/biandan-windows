@@ -17,8 +17,10 @@ namespace Biandan {
   public static readonly string BasePath=AppDomain.CurrentDomain.BaseDirectory;
   public static App CurrentApp;
   public Repository Repo;public Settings Preferences;public MainView Desktop;public LoginView Login;
+  static readonly string[] widgetKinds={"calendar","todo","focus"};
   public readonly Dictionary<string,WidgetView> Widgets=new Dictionary<string,WidgetView>();
   public bool Quitting,Smoke;public DateTime? FocusEnd,FocusStarted;public int FocusMinutes=25;public string FocusTitle="专注当下";public string FocusOccurrence;
+  internal bool SavingFocus{get;private set;}
   Forms.NotifyIcon tray;Mutex mutex;DispatcherTimer timer,appearanceTimer;int ticks;
   DateTime nextAutomaticSync,lastInputUtc=DateTime.UtcNow,nextTaskSyncRetry;
   bool automaticSyncRunning;readonly HashSet<string> notified=new HashSet<string>();
@@ -72,6 +74,7 @@ namespace Biandan {
    var menu=new Forms.ContextMenuStrip();menu.Items.Add("打开便单",null,delegate{Dispatcher.Invoke(ShowDesktop);});
    menu.Items.Add("桌面日历",null,delegate{Dispatcher.Invoke(()=>ToggleWidget("calendar"));});
    menu.Items.Add("桌面待办",null,delegate{Dispatcher.Invoke(()=>ToggleWidget("todo"));});
+   menu.Items.Add("桌面番茄钟",null,delegate{Dispatcher.Invoke(()=>ToggleWidget("focus"));});
    menu.Items.Add(new Forms.ToolStripSeparator());menu.Items.Add("退出便单",null,delegate{Dispatcher.Invoke(Quit);});
    tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{Dispatcher.Invoke(ShowDesktop);};
   }
@@ -84,12 +87,22 @@ namespace Biandan {
    if(Desktop==null||!Desktop.IsLoaded){Desktop=new MainView(this);MainWindow=Desktop;}
    Desktop.Show();Desktop.WindowState=WindowState.Normal;Desktop.Activate();
    if(Login!=null)Login.Hide();
-   foreach(var kind in new[]{"calendar","todo"})if(Preferences.GetBool("widget."+kind+".visible")&&!Widgets.ContainsKey(kind))ToggleWidget(kind);
+   foreach(var kind in widgetKinds)if(Preferences.GetBool("widget."+kind+".visible")&&!Widgets.ContainsKey(kind))ToggleWidget(kind);
   }
   public void ToggleWidget(string kind){
    WidgetView w;if(Widgets.TryGetValue(kind,out w)){w.Close();return;}
    if(!Repo.Demo&&!Repo.Connected&&Repo.Tasks.Count==0){ShowLogin();return;}
-   w=new WidgetView(this,kind);Widgets[kind]=w;Preferences.Set("widget."+kind+".visible",true);w.Closed+=delegate{Widgets.Remove(kind);if(!Quitting)Preferences.Set("widget."+kind+".visible",false);};w.Show();
+   w=new WidgetView(this,kind);
+   Widgets[kind]=w;
+   Preferences.Set("widget."+kind+".visible",true);
+   w.Closed+=delegate{
+    Widgets.Remove(kind);
+    if(Quitting)return;
+    Preferences.Set("widget."+kind+".visible",false);
+    if(Desktop!=null)Desktop.RefreshWidgetsPage();
+   };
+   w.Show();
+   if(Desktop!=null)Desktop.RefreshWidgetsPage();
   }
   public void SetThemeColor(string hex){
    Preferences.Set("themeColor",hex);
@@ -107,24 +120,62 @@ namespace Biandan {
    appearanceTimer.Stop();appearanceTimer.Start();
   }
   public void Quit(){
+   if(SavingFocus)return;
    if(FocusStarted.HasValue&&!U.Confirm(Desktop,"还有一条专注记录","退出后计时将结束，未保存的本次专注不会自动写入云端。","退出"))return;
    Quitting=true;if(Login!=null)Login.Close();foreach(var w in Widgets.Values.ToArray())w.Close();if(Desktop!=null)Desktop.Close();Shutdown();
   }
   public void Notify(string title,string body){if(Preferences.GetBool("notifications",true)&&tray!=null){tray.BalloonTipTitle=title;tray.BalloonTipText=body;tray.ShowBalloonTip(5000);}}
   public void StartFocus(int minutes,string title,string occurrence=null){
-   FocusStarted=DateTime.Now;FocusEnd=DateTime.Now.AddMinutes(minutes);FocusMinutes=minutes;FocusTitle=title;FocusOccurrence=occurrence;Repo.Publish();
+   if(FocusStarted.HasValue)return;
+   var now=DateTime.Now;
+   FocusStarted=now;FocusEnd=now.AddMinutes(minutes);FocusMinutes=minutes;FocusTitle=title;FocusOccurrence=occurrence;
+   Repo.Publish();
+  }
+  internal int FocusSecondsLeft{
+   get{return FocusEnd.HasValue?(int)Math.Ceiling(Math.Max(0,(FocusEnd.Value-DateTime.Now).TotalSeconds)):0;}
+  }
+  internal static string FormatFocusClock(int seconds){
+   return (seconds/60).ToString("00")+":"+(seconds%60).ToString("00");
   }
   public async Task SaveFocusAsync(){
-   if(!FocusStarted.HasValue)return;var started=FocusStarted.Value;int minutes=(int)Math.Floor((DateTime.Now-started).TotalMinutes);
+   if(!FocusStarted.HasValue||SavingFocus)return;
+   var started=FocusStarted.Value;
+   int minutes=(int)Math.Floor((DateTime.Now-started).TotalMinutes);
    if(minutes<1)throw new McpException("已专注不足 1 分钟，继续一会儿再保存。");
    var args=J.Obj("started_at",started.ToString("yyyy-MM-ddTHH:mm:ss"),"minutes",Math.Min(minutes,1440),"title",FocusTitle,"good_count",minutes>=FocusMinutes?1:0,"bad_count",minutes<FocusMinutes?1:0);
    if(!string.IsNullOrEmpty(FocusOccurrence))args["occurrence_id"]=FocusOccurrence;
-   await Repo.CallAsync("create_focus",args);FocusStarted=null;FocusEnd=null;Repo.Publish();
+   SavingFocus=true;
+   try{
+    Repo.Publish();
+    await Repo.CallAsync("create_focus",args);
+    FocusStarted=FocusEnd=null;
+   }finally{
+    SavingFocus=false;
+    Repo.Publish();
+   }
   }
-  public void DiscardFocus(){FocusStarted=null;FocusEnd=null;Repo.Publish();}
+  internal void ConfirmDiscardFocus(Window owner){
+   var started=FocusStarted;
+   if(started.HasValue&&!SavingFocus&&U.Confirm(owner,"放弃本次专注","本次计时将清除，不写入专注记录。","放弃")&&FocusStarted==started)
+    DiscardFocus();
+  }
+  public void DiscardFocus(){
+   if(SavingFocus||!FocusStarted.HasValue)return;
+   FocusStarted=FocusEnd=null;
+   Repo.Publish();
+  }
+  void UpdateFocusTimer(){
+   if(FocusEnd.HasValue&&DateTime.Now>=FocusEnd.Value){
+    FocusEnd=null;
+    Notify("专注结束",FocusTitle+" · "+FocusMinutes+" 分钟。可在番茄钟或专注时刻保存本次记录。");
+   }
+   if(Desktop!=null)Desktop.TickFocus();
+   WidgetView widget;
+   if(Widgets.TryGetValue("focus",out widget))widget.TickPomodoro();
+  }
   void Tick(object sender,EventArgs e){
-   ticks++;if(Desktop!=null)Desktop.TickFocus();
-   if(FocusEnd.HasValue&&DateTime.Now>=FocusEnd.Value){Notify("这一刻，专注完成",FocusTitle+" · "+FocusMinutes+" 分钟。打开便单保存本次记录。");FocusEnd=null;if(Desktop!=null)Desktop.RenderPage();}
+   ticks++;
+   UpdateFocusTimer();
    if(ticks%20==0&&Repo.CanWrite)CheckReminders();
    if(!Repo.Demo&&!automaticSyncRunning&&!Repo.Syncing&&AutomaticSyncDue(DateTime.UtcNow))AutoSync();
    if(ticks%60==0)Repo.Publish();
@@ -590,6 +641,7 @@ namespace Biandan {
    VerifySyncSettings();
    VerifyFocusDurations();
    VerifyTomatoSummary();
+   await VerifyPomodoroWidgetAsync(dir);
    await VerifyCloudPaginationAsync();
    await VerifyListPresentationAsync();
    await VerifyListNavigationAsync();
