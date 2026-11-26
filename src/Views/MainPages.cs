@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -7,6 +8,15 @@ using Microsoft.Win32;
 namespace Biandan {
  public sealed partial class MainView{
   int focusLimit=30;
+  IEnumerable<Dictionary<string,object>> TodaysFocus(){
+   string date=J.Today;
+   return repo.Focus.Where(record=>record.S("date")==date);
+  }
+
+  static long CompletedTomatoes(IEnumerable<Dictionary<string,object>> records){
+   return records.Sum(record=>(long)record.I("good_count"));
+  }
+
   void RenderFocus(){
    var p=U.Stack();var hero=U.Stack();hero.HorizontalAlignment=HorizontalAlignment.Center;hero.Margin=new Thickness(0,22,0,18);
    hero.Children.Add(U.Text("把这一刻，还给自己",21,"#6E5638",true));U.Gap(hero,17);focusClock=U.Text("25:00",72,"#8D560B",true);focusClock.HorizontalAlignment=HorizontalAlignment.Center;hero.Children.Add(focusClock);U.Gap(hero,13);
@@ -14,7 +24,7 @@ namespace Biandan {
     actions.Children.Add(U.Button("保存本次专注",async()=>{await app.RunAction(async()=>await app.SaveFocusAsync());},"Primary"));var discard=U.Button("放弃本次",()=>{if(U.Confirm(this,"放弃本次专注","本次计时将清除，不写入专注记录。","放弃"))app.DiscardFocus();});discard.Margin=new Thickness(10,0,0,0);actions.Children.Add(discard);hero.Children.Add(actions);
    }else{var fields=U.Grid("230,16,90");var name=U.Input("专注当下");name.ToolTip="本次专注名称";var duration=new ComboBox();foreach(var n in new[]{15,25,45,60,90})duration.Items.Add(n+" 分钟");duration.SelectedIndex=1;U.Place(fields,name);U.Place(fields,duration,2);hero.Children.Add(fields);U.Gap(hero,18);var start=U.Button("开始一段专注",()=>{app.StartFocus(new[]{15,25,45,60,90}[duration.SelectedIndex],string.IsNullOrWhiteSpace(name.Text)?"专注当下":name.Text.Trim());},"Primary");start.HorizontalAlignment=HorizontalAlignment.Center;hero.Children.Add(start);}
    p.Children.Add(U.Card(hero,"#FEEDD0",20,new Thickness(25)));TickFocus();U.Gap(p,24);
-   var stats=U.Grid("*,*,*");var today=repo.Focus.Where(f=>f.S("date")==J.Today).ToList();U.Place(stats,Stat("今日专注",FocusDuration.Format(today.Sum(record=>FocusDuration.Minutes(record)))+" 分钟","#8D560B"));U.Place(stats,Stat("完成番茄",today.Sum(f=>f.I("good_count")).ToString(),"#C2A47C"),1);U.Place(stats,Stat("累计记录",repo.Focus.Count.ToString(),"#7B6548"),2);p.Children.Add(stats);U.Gap(p,23);
+   var stats=U.Grid("*,*,*");var today=TodaysFocus().ToList();U.Place(stats,Stat("今日专注",FocusDuration.Format(today.Sum(record=>FocusDuration.Minutes(record)))+" 分钟","#8D560B"));U.Place(stats,Stat("完成番茄",CompletedTomatoes(today).ToString(),"#C2A47C"),1);U.Place(stats,Stat("累计记录",repo.Focus.Count.ToString(),"#7B6548"),2);p.Children.Add(stats);U.Gap(p,23);
    var heading=U.Grid("*,Auto");U.Place(heading,U.Text("专注记录",15,"#6E5638",true));U.Place(heading,U.Button("＋ 补记专注",()=>FocusEditor.Show(this,repo,null),"Secondary"),1);p.Children.Add(heading);U.Gap(p,13);
    foreach(var f in repo.Focus.OrderByDescending(x=>x.S("started_at")).Take(focusLimit)){
     var focus=f;var row=U.Grid("*,90,Auto,Auto");var text=U.Stack();text.Children.Add(U.Text(f.S("title","专注时刻"),13,"#6E5638",true));U.Gap(text,6);text.Children.Add(U.Text(f.S("date")+"  "+(f.S("started_at").Length>=16?f.S("started_at").Substring(11,5):""),11,"#897859"));U.Place(row,text);U.Place(row,U.Text(FocusDuration.Format(FocusDuration.Minutes(f))+" 分钟",14,"#6E5638",true),1);

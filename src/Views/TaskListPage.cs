@@ -9,7 +9,7 @@ namespace Biandan {
  public sealed partial class MainView {
   Grid taskPageFrame;
   TaskResultsList taskResults;
-  TextBlock pendingCount,completedCount,focusMinutes,totalCount,emptyLabel;
+  TextBlock pendingCount,completedCount,tomatoCount,totalCount,emptyLabel;
   FrameworkElement emptyTasks,bulkToolbar;
   Expander completedGroup,skippedGroup;
   List<TaskItem> activeRows,completedRows,skippedRows;
@@ -26,7 +26,7 @@ namespace Biandan {
    skippedRows=items.Where(t=>t.Abandoned).ToList();
    pendingCount.Text=activeRows.Count.ToString();
    completedCount.Text=completedRows.Count.ToString();
-   focusMinutes.Text=FocusDuration.Format(repo.Focus.Where(f=>f.S("date")==J.Today).Sum(record=>FocusDuration.Minutes(record)));
+   tomatoCount.Text=CompletedTomatoes(TodaysFocus()).ToString();
    totalCount.Text=items.Count+" 项";
    if(quickInput!=null)quickInput.IsEnabled=repo.CanWrite;
    completedGroup.Header="已完成  ·  "+completedRows.Count;
@@ -42,12 +42,12 @@ namespace Biandan {
     var summary=new WrapPanel{Margin=new Thickness(2,12,0,16)};
     pendingCount=AddDayMetric(summary,"待完成");
     completedCount=AddDayMetric(summary,"已完成");
-    focusMinutes=AddDayMetric(summary,"专注分钟");
+    tomatoCount=AddDayMetric(summary,"今日番茄数");
     panel.Children.Add(summary);
    }else{
     var stats=U.Grid("*,*,*");
-    pendingCount=U.Text("",25,"#8D560B",true);completedCount=U.Text("",25,"#8D560B",true);focusMinutes=U.Text("",25,"#7B6548",true);
-    U.Place(stats,Stat("待完成",pendingCount));U.Place(stats,Stat("已完成",completedCount),1);U.Place(stats,Stat("专注分钟",focusMinutes),2);panel.Children.Add(stats);U.Gap(panel,20);
+    pendingCount=U.Text("",25,"#8D560B",true);completedCount=U.Text("",25,"#8D560B",true);tomatoCount=U.Text("",25,"#7B6548",true);
+    U.Place(stats,Stat("待完成",pendingCount));U.Place(stats,Stat("已完成",completedCount),1);U.Place(stats,Stat("今日番茄数",tomatoCount),2);panel.Children.Add(stats);U.Gap(panel,20);
    }
    var section=U.Grid("*,Auto","Auto,Auto");
    var heading=U.Stack(true);

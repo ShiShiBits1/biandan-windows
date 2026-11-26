@@ -364,6 +364,7 @@ namespace Biandan {
    await Task.Delay(300);
    var progress=VisualControls<ProgressBar>(Desktop).FirstOrDefault(bar=>bar.Maximum==2&&bar.Value==1);
    if(progress==null)throw new InvalidOperationException("The in-progress card must show the actual checklist progress.");
+   VerifyBoardCardFocus();
    U.Capture(Desktop,Path.Combine(directory,"10-board.png"));
    var filter=VisualControls<Button>(Desktop).Single(button=>AutomationProperties.GetName(button)=="筛选清单：全部清单");
    VerifyPlanningTheme(directory,"20-board-custom.png",filter,progress.Foreground);
@@ -588,6 +589,7 @@ namespace Biandan {
    VerifyTaskFocusButton();
    VerifySyncSettings();
    VerifyFocusDurations();
+   VerifyTomatoSummary();
    await VerifyCloudPaginationAsync();
    await VerifyListPresentationAsync();
    await VerifyListNavigationAsync();

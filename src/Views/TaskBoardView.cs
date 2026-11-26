@@ -207,12 +207,13 @@ namespace Biandan {
   }
 
   FrameworkElement RenderKanbanCard(TaskItem item,int lane){
-   var row=U.Grid("28,*,27");
+   const int checkColumn=33,menuColumn=29;
+   var row=U.Grid(checkColumn+",*,"+menuColumn);
    var check=PlanningPalette.Icon(item.Completed?"\uE73E":"\uE739",item.Completed?"撤销完成："+item.Title:"完成待办："+item.Title,
     async()=>await MoveBoardCard(item.OccurrenceId,false,item.Completed?0:2));
    check.Width=26;
    check.VerticalAlignment=VerticalAlignment.Top;
-   check.Margin=new Thickness(0,4,0,0);
+   check.Margin=new Thickness(5,4,0,0);
    check.IsEnabled=repo.CanWrite&&!item.Syncing;
    if(item.Completed){
     var tick=U.Icon("\uE73E",10,"#182D23");tick.HorizontalAlignment=HorizontalAlignment.Center;
@@ -261,18 +262,20 @@ namespace Biandan {
     fields.Children.Add(progress);
    }
 
-   var open=PlanningPalette.Button("",()=>EditTask(item));
+   // The card body spans the entire surface so its keyboard cue follows the card rim.
+   // The two action buttons sit above it and keep their own input and focus targets.
+   var open=U.Button("",()=>EditTask(item),"KanbanCardAction");
    open.Content=fields;
-   open.Padding=new Thickness(0,9,2,9);
-   open.HorizontalContentAlignment=HorizontalAlignment.Stretch;
+   open.Padding=new Thickness(checkColumn+1,10,menuColumn+3,10);
+   Panel.SetZIndex(open,-1);
    open.IsEnabled=!item.Syncing;
    AutomationProperties.SetName(open,"查看待办："+item.Title);
    TrackCardDrag(open,item,false);
-   U.Place(row,open,1);
+   U.Place(row,open,colSpan:3);
    var more=PlanningPalette.Icon("\uE712","移动待办："+item.Title,null);
    more.Width=25;
    more.VerticalAlignment=VerticalAlignment.Top;
-   more.Margin=new Thickness(0,4,0,0);
+   more.Margin=new Thickness(0,4,2,0);
    more.IsEnabled=repo.CanWrite&&!item.Syncing;
    var menu=Motion.Menu();
    for(int index=0;index<boardTitles.Length;index++){
@@ -283,7 +286,7 @@ namespace Biandan {
    more.Click+=delegate{TaskCardSurface.OpenMenu(more,menu);};
    if(more.IsEnabled)open.ContextMenu=menu;
    U.Place(row,more,2);
-   var card=U.TaskCard(row,item.Completed?"#FFF9EC":PlanningPalette.Card,9,new Thickness(5,0,2,0));
+   var card=U.TaskCard(row,item.Completed?"#FFF9EC":PlanningPalette.Card,9,new Thickness(0));
    if(item.Task.B("important"))card.BorderBrush=U.C("#EBC87C");
    card.Margin=new Thickness(0,0,2,8);
    return card;
