@@ -12,7 +12,7 @@ namespace Biandan {
   readonly HashSet<string> bulkIds=new HashSet<string>();
   readonly HashSet<CheckBox> visibleBulkChecks=new HashSet<CheckBox>();
   List<TaskItem> bulkItems=new List<TaskItem>();
-  Button bulkStart,bulkAll,bulkMove,bulkDate,bulkCancel;
+  Button bulkStart,bulkAll,bulkMove,bulkDate,bulkDelete,bulkCancel;
   TextBlock bulkCount;
   bool BulkSelecting{get;set;}
 
@@ -28,7 +28,7 @@ namespace Biandan {
    bulkItems.Clear();
    visibleBulkChecks.Clear();
    PreviewKeyDown-=BulkKeyDown;
-   bulkStart=bulkAll=bulkMove=bulkDate=bulkCancel=null;bulkCount=null;
+   bulkStart=bulkAll=bulkMove=bulkDate=bulkDelete=bulkCancel=null;bulkCount=null;
   }
 
   FrameworkElement BulkTaskToolbar(){
@@ -42,14 +42,15 @@ namespace Biandan {
    bulkAll.ToolTip="选择本页全部记录，包括已收起的分组";
    bulkMove=U.Button("移到清单",()=>ShowBulkDialog(false),"Secondary");
    bulkDate=U.Button("改日期",()=>ShowBulkDialog(true),"Secondary");
+   bulkDelete=U.Button("批量删除",ShowBulkDeleteDialog,"Secondary");
    bulkCancel=U.Button("退出多选",EndBulkSelection);
-   foreach(var button in new[]{bulkStart,bulkAll,bulkMove,bulkDate,bulkCancel}){
+   foreach(var button in new[]{bulkStart,bulkAll,bulkMove,bulkDate,bulkDelete,bulkCancel}){
     button.Padding=new Thickness(10,5,10,5);
     button.MinHeight=29;
     button.Margin=new Thickness(0,2,6,2);
    }
    bar.Children.Add(bulkStart);bar.Children.Add(bulkCount);
-   foreach(var button in new[]{bulkAll,bulkMove,bulkDate,bulkCancel})bar.Children.Add(button);
+   foreach(var button in new[]{bulkAll,bulkMove,bulkDate,bulkDelete,bulkCancel})bar.Children.Add(button);
    PreviewKeyDown-=BulkKeyDown;PreviewKeyDown+=BulkKeyDown;
    RefreshBulkToolbar();
    return bar;
@@ -60,11 +61,13 @@ namespace Biandan {
    bulkStart.Visibility=BulkSelecting?Visibility.Collapsed:Visibility.Visible;
    bulkStart.IsEnabled=repo.CanWrite&&bulkItems.Count>0;
    var visibility=BulkSelecting?Visibility.Visible:Visibility.Collapsed;
-   bulkCount.Visibility=bulkAll.Visibility=bulkMove.Visibility=bulkDate.Visibility=bulkCancel.Visibility=visibility;
+   bulkCount.Visibility=bulkAll.Visibility=bulkMove.Visibility=bulkDate.Visibility=bulkDelete.Visibility=bulkCancel.Visibility=visibility;
    bulkCount.Text="已选 "+bulkIds.Count+" 项";
    bulkAll.Content=bulkIds.Count>0&&bulkIds.Count==bulkItems.Count?"清空选择":"全选";
    bulkAll.IsEnabled=bulkItems.Count>0;
    bulkMove.IsEnabled=bulkDate.IsEnabled=bulkIds.Count>0&&repo.CanWrite;
+   bulkDelete.IsEnabled=bulkIds.Count>0&&(repo.Demo||repo.Connected);
+   bulkDelete.ToolTip="预览选中待办的删除范围";
   }
 
   void EndBulkSelection(){

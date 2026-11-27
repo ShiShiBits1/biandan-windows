@@ -637,6 +637,7 @@ namespace Biandan {
    SetWidgetTransparency(2);
    VerifyQuickEntry();
    VerifyTaskListVirtualization();
+   VerifyRailDateFilter();
    VerifyTaskFocusButton();
    VerifySyncSettings();
    VerifyFocusDurations();
@@ -646,18 +647,29 @@ namespace Biandan {
    await VerifyListPresentationAsync();
    await VerifyListNavigationAsync();
    VerifyBulkActions();
+   await VerifyBatchDeleteDialogAsync();
+   await VerifyCloudBatchDeleteAsync();
    VerifyBundledAssistantSkill();
    await VerifyAssistantTaskWritesAsync();
    await VerifyAppearanceAndAssistantAsync(dir);
    await VerifyDemoAsync();
    VerifyDemoProgress();
    await VerifyTaskRemarksAsync(dir);
+   VerifyOfficialRemarkFormats();
    await VerifyWeeklyPlanAsync(dir);
    await VerifyTaskBoardsAsync(dir);
    var bundled=BundledBackend.Prepare(Path.Combine(Preferences.DirectoryPath,"mcp"));
    File.WriteAllText(bundled,"invalid cached service");
    await Repo.Client.StartAsync(true);
    try{
+    var initialized=await Repo.Client.RpcAsync("initialize",J.Obj("protocolVersion","2025-06-18",
+     "capabilities",J.Obj(),"clientInfo",J.Obj("name","Biandan Desktop smoke","version","1")));
+    if(initialized.D("serverInfo").S("version")!=BundledBackend.Version)
+     throw new InvalidOperationException("The embedded MCP version does not match the desktop UI.");
+    var tools=await Repo.Client.RpcAsync("tools/list",J.Obj());
+    var batch=tools.Rows("tools").Single(tool=>tool.S("name")=="biandan_batch_delete_tasks");
+    if(batch.D("inputSchema").D("properties").D("tasks").ContainsKey("maxItems"))
+     throw new InvalidOperationException("The embedded MCP must accept selections above the former 20-item limit.");
     var local=await Repo.Client.CallAsync("local_today");
     if(local.S("date")!=J.Today)throw new InvalidOperationException("Unexpected bundled MCP response.");
    }finally{Repo.Client.Stop();}

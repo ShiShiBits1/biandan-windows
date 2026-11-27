@@ -295,10 +295,23 @@ namespace Biandan {
      t["location"]=place;return t;
     }
     case "delete_task":{
-     var affected=Occurrences.Where(x=>x.S("task_id")==tid&&(a.S("scope")!="occurrence"||x.S("occurrence_id")==oid)).ToList();
-     bool deleteDefinition=a.S("scope")!="occurrence"||t.I("repeat_type")==0;
-     if(a.B("preview"))return J.Obj("preview",true,"occurrence_ids",affected.Select(x=>x.S("occurrence_id")).ToArray(),"deletes_task_definition",deleteDefinition);
-     Occurrences.RemoveAll(x=>affected.Contains(x));if(deleteDefinition)Tasks.Remove(t);else RecomputeTaskCompletion(tid);return J.Obj("deleted",true);
+     var instances=Occurrences.Where(row=>row.S("task_id")==tid).ToList();
+     string scope=a.S("scope","series");
+     var affected=instances;
+     if(scope=="occurrence")affected=instances.Where(row=>row.S("occurrence_id")==oid).ToList();
+     if(scope=="future_pending"){
+      string cutoff=a.S("from_date")!=""?a.S("from_date")+" 00:00:00":DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss",System.Globalization.CultureInfo.InvariantCulture);
+      affected=instances.Where(row=>row.S("status")!="completed"&&
+       string.CompareOrdinal(row.S("start_date")+" "+row.S("start_time","00:00:00"),cutoff)>=0).ToList();
+     }
+     bool deleteDefinition=scope=="series"||(scope=="occurrence"&&t.I("repeat_type")==0)||
+      (scope=="future_pending"&&affected.Count>0&&affected.Count==instances.Count);
+     if(deleteDefinition&&scope=="occurrence"&&affected.Count!=instances.Count)
+      throw new McpException("还有其他执行记录，请使用整个系列删除。");
+     var result=J.Obj("task_id",tid,"title",t.S("title"),"scope",scope,"occurrence_ids",affected.Select(x=>x.S("occurrence_id")).ToArray(),"deletes_task_definition",deleteDefinition);
+     if(a.B("preview")){result["preview"]=true;return result;}
+     Occurrences.RemoveAll(x=>affected.Contains(x));if(deleteDefinition)Tasks.Remove(t);else RecomputeTaskCompletion(tid);
+     result["deleted"]=true;return result;
     }
     case "create_list":{
      int next=Lists.Select(row=>row.I("sort_index")).DefaultIfEmpty(0).Max()+1;

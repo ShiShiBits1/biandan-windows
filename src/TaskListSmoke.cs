@@ -21,8 +21,8 @@ namespace Biandan {
     start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Desktop.UpdateLayout();
     var results=VisualControls<TaskResultsList>(Desktop).Single();
     Rect bounds=new Rect(results.TranslatePoint(new Point(),Desktop),results.RenderSize);
-    var actions=VisualControls<Button>(Desktop).Where(b=>b.IsVisible&&new[]{"全选","移到清单","改日期","退出多选"}.Contains(b.Content as string)).ToArray();
-    if(actions.Length!=4)throw new InvalidOperationException("The selection toolbar lost actions at the minimum window width.");
+    var actions=VisualControls<Button>(Desktop).Where(b=>b.IsVisible&&new[]{"全选","移到清单","改日期","批量删除","退出多选"}.Contains(b.Content as string)).ToArray();
+    if(actions.Length!=5)throw new InvalidOperationException("The selection toolbar lost actions at the minimum window width.");
     foreach(var button in actions){
      var rect=new Rect(button.TranslatePoint(new Point(),Desktop),button.RenderSize);
      if(rect.Left<bounds.Left-1||rect.Right>bounds.Right+1||rect.Top<labelOrigin.Y+label.ActualHeight-1||rect.Bottom>bounds.Top)

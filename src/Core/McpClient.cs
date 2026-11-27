@@ -32,7 +32,7 @@ namespace Biandan {
   public McpClient(string statePath){stateDirectory=statePath;}
   internal McpClient(HttpClient transport){directEndpoint=true;http=transport;}
   internal McpClient(Uri endpoint,string key){directEndpoint=true;ConfigureHttp(endpoint,key);}
-  void ConfigureHttp(Uri endpoint,string key){http=new HttpClient(new HttpClientHandler{UseProxy=false}){BaseAddress=endpoint,Timeout=TimeSpan.FromSeconds(120)};http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",key);http.DefaultRequestHeaders.Add("MCP-Protocol-Version","2025-06-18");}
+  void ConfigureHttp(Uri endpoint,string key){http=new HttpClient(new HttpClientHandler{UseProxy=false}){BaseAddress=endpoint,Timeout=Timeout.InfiniteTimeSpan};http.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",key);http.DefaultRequestHeaders.Add("MCP-Protocol-Version","2025-06-18");}
   public Task StartAsync(){return StartAsync(false);}
   internal async Task StartAsync(bool smokeTest){
    if(Running)return;
@@ -71,11 +71,15 @@ namespace Biandan {
     await Task.Delay(150);
    }Stop();throw new McpException("本机登录服务启动超时，请重试。");
   }
-  public async Task<Dictionary<string,object>> RpcAsync(string method,Dictionary<string,object> args){
+  public Task<Dictionary<string,object>> RpcAsync(string method,Dictionary<string,object> args){
+   return RpcWithTimeoutAsync(method,args,TimeSpan.FromMinutes(2));
+  }
+  async Task<Dictionary<string,object>> RpcWithTimeoutAsync(string method,Dictionary<string,object> args,TimeSpan timeout){
    if(http==null)throw new McpException("请先登录便单。");
    var message=J.Obj("jsonrpc","2.0","id",Interlocked.Increment(ref requestId),"method",method,"params",args);
+   using(var cancellation=new CancellationTokenSource(timeout))
    using(var content=new StringContent(J.Encode(message),Encoding.UTF8,"application/json"))
-   using(var response=await http.PostAsync("",content)){
+   using(var response=await http.PostAsync("",content,cancellation.Token)){
     if(!response.IsSuccessStatusCode)throw new McpException("本机服务连接失败（"+(int)response.StatusCode+"），请重新登录。");
     var result=J.Parse(await response.Content.ReadAsStringAsync());if(result.D("error")!=null)throw new McpException(result.D("error").S("message"));
     var value=result.D("result");if(value==null)throw new McpException("服务返回了无法识别的数据。");return value;
@@ -84,7 +88,10 @@ namespace Biandan {
   public async Task<Dictionary<string,object>> CallAsync(string name,Dictionary<string,object> args=null){
    if(authorizationStorageFailed)throw new McpException("无法保存本机授权标识。请检查磁盘权限并重新启动便单。");
    await gate.WaitAsync();try{
-    var result=await RpcAsync("tools/call",J.Obj("name","biandan_"+name,"arguments",args??J.Obj()));var data=result.D("structuredContent");
+    var request=J.Obj("name","biandan_"+name,"arguments",args??J.Obj());
+    var timeout=TimeSpan.FromMinutes(name=="batch_delete_tasks"?15:2);
+    var result=await RpcWithTimeoutAsync("tools/call",request,timeout);
+    var data=result.D("structuredContent");
     if(data==null)foreach(var item in result.Rows("content"))if(item.S("type")=="text"){data=J.Parse(item.S("text"));break;}
     if(data==null)throw new McpException("服务未返回操作结果。");if(result.B("isError")||data.ContainsKey("error"))throw new McpException(data.S("error","操作失败"),data);return data;
    }finally{gate.Release();}

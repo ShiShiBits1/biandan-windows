@@ -116,7 +116,7 @@ namespace Biandan {
  details.Margin=new Thickness(10,0,0,0);controls.Children.Add(details);
  sync.Children.Add(controls);U.Gap(sync,10);sync.Children.Add(BackupControls());
  p.Children.Add(U.Card(sync,"#FFFAF0",16,new Thickness(22)));U.Gap(p,23);
-   var about=U.Text("便单 Windows 桌面版 "+GetType().Assembly.GetName().Version.ToString(3)+"   ·   内置便单 MCP 0.4.3\n快捷键：Ctrl + N 新建待办    Ctrl + K 全局搜索    F5 同步\n本客户端为独立开发版本，账号授权及云端能力由原便单服务提供。",11,"#897859");about.LineHeight=25;p.Children.Add(about);body.Content=new ScrollViewer{Content=p};
+   var about=U.Text("便单 Windows 桌面版 "+GetType().Assembly.GetName().Version.ToString(3)+"   ·   内置便单 MCP "+BundledBackend.Version+"\n快捷键：Ctrl + N 新建待办    Ctrl + K 全局搜索    F5 同步\n本客户端为独立开发版本，账号授权及云端能力由原便单服务提供。",11,"#897859");about.LineHeight=25;p.Children.Add(about);body.Content=new ScrollViewer{Content=p};
   }
   FrameworkElement SettingToggle(string label,string description,string key,bool fallback){
    var row=U.Stack();var box=new CheckBox{Content=label,IsChecked=app.Preferences.GetBool(key,fallback)};box.Click+=delegate{app.Preferences.Set(key,box.IsChecked==true);};row.Children.Add(box);var help=U.Text(description,11,"#897859");help.TextWrapping=TextWrapping.Wrap;help.Margin=new Thickness(28,8,0,5);row.Children.Add(help);return row;

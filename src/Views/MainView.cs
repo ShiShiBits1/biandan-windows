@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -170,12 +171,17 @@ namespace Biandan {
    int count;counts.TryGetValue(key,out count);counts[key]=count+1;
   }
   public void Navigate(string key){
-   if(page!=key){openedTaskRow=null;LeaveBulkPage();taskPageFrame=null;taskResults=null;quickInput=null;quickInputPage=null;if(page=="calendar")weekScroll=null;}
+   if(page!=key){railDateFilter=null;openedTaskRow=null;LeaveBulkPage();taskPageFrame=null;taskResults=null;quickInput=null;quickInputPage=null;if(page=="calendar")weekScroll=null;}
    page=key;BuildNav();RenderPage();
    Button selected;if(navButtons.TryGetValue(key,out selected))Motion.Enter(selected,0.95,false);
   }
   List<TaskItem> Filtered(string key){
-   IEnumerable<TaskItem> items=repo.Items();string today=J.Today;
+   IEnumerable<TaskItem> items=repo.Items();
+   if(key==page&&railDateFilter.HasValue&&UsesRailDateFilter(key)){
+    string date=J.Date(railDateFilter.Value);
+    return items.Where(item=>item.OnDate(date)).ToList();
+   }
+   string today=J.Today;
    switch(key){
     case "today":items=items.Where(t=>t.OnDate(today)||t.Overdue);break;
     case "upcoming":var end=J.Date(DateTime.Today.AddDays(6));items=items.Where(t=>!t.Undated&&string.Compare(t.Start,end,StringComparison.Ordinal)<=0&&string.Compare(t.End,today,StringComparison.Ordinal)>=0);break;
@@ -249,7 +255,7 @@ namespace Biandan {
   }
   async System.Threading.Tasks.Task SubmitQuickTask(TextBox input){
    string value=input.Text.Trim(),origin=page;
-   string date=page=="all"||page.StartsWith("list:")?null:J.Today;
+   string date=railDateFilter.HasValue?J.Date(railDateFilter.Value):page=="all"||page.StartsWith("list:")?null:J.Today;
    string listId=page.StartsWith("list:")?page.Substring(5):"1";
    bool important=page=="important";
    var key=Tuple.Create(value,date,listId,important);
@@ -342,7 +348,24 @@ namespace Biandan {
    await app.RunAction(async()=>{var a=J.Obj("task_id",item.Id,"preview",true);if(item.Repeating){a["scope"]=series?"series":"occurrence";if(!series)a["occurrence_id"]=item.OccurrenceId;}
     var p=await repo.CallAsync("delete_task",a);if(U.Confirm(this,series?"删除重复系列":"删除待办","将永久删除「"+item.Title+"」"+(series?"及其 "+p.Strings("occurrence_ids").Count+" 次执行记录":"的选中记录")+"。","删除")){a.Remove("preview");await repo.CallAsync("delete_task",a);ShowToast("已删除");}});
   }
+  DateTime? railDateFilter;
   MonthCalendar railCalendar;
+
+  static bool UsesRailDateFilter(string key){
+   return key=="today"||key=="upcoming"||key=="all";
+  }
+
+  void SelectRailDate(DateTime date){
+   if(!UsesRailDateFilter(page)){OpenCalendarDate(date);return;}
+   railDateFilter=date.Date;
+   RenderPage();
+  }
+
+  void ClearRailDateFilter(){
+   railDateFilter=null;
+   RenderPage();
+  }
+
   TextBlock railClock;
   Button railFocusButton;
   void RenderRail(){
@@ -353,7 +376,8 @@ namespace Biandan {
     var widget=U.IconButton("\uE8A7","打开日历小组件",()=>app.ToggleWidget("calendar"));
     System.Windows.Automation.AutomationProperties.SetName(widget,"打开日历小组件");
     U.Place(head,widget,1);cal.Children.Add(head);U.Gap(cal,5);
-    railCalendar=new MonthCalendar(repo,DateTime.Today,DateTime.Today,d=>{calendarDate=d;calendarMonth=d;Navigate("calendar");});
+    railCalendar=new MonthCalendar(repo,DateTime.Today,UsesRailDateFilter(page)?railDateFilter:DateTime.Today,SelectRailDate);
+    AutomationProperties.SetName(railCalendar,"右侧小日历");
     cal.Children.Add(railCalendar);panel.Children.Add(U.Card(cal,"#FFFDF8",16,new Thickness(18,13,18,16)));
     U.Gap(panel,14);
 
@@ -368,7 +392,10 @@ namespace Biandan {
     railFocusButton.Background=U.C("#FFF3DB");
     timer.Children.Add(railFocusButton);panel.Children.Add(U.Card(timer,"#FFFDF8",16,new Thickness(19,17,19,17)));
     rail.Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
-   }else railCalendar.Render();
+   }else{
+    railCalendar.Selected=UsesRailDateFilter(page)?railDateFilter:DateTime.Today;
+    railCalendar.Render();
+   }
    railFocusButton.Content=app.FocusStarted.HasValue?"查看本次专注":"进入专注";
    if(app.FocusStarted.HasValue){focusClock=railClock;TickFocus();}
    else railClock.Text="25:00";
@@ -382,7 +409,7 @@ namespace Biandan {
   }
   public void OpenCalendarDate(DateTime date){calendarDate=date;calendarMonth=date;Navigate("calendar");}
   void NewTask(DateTime? date=null,string listId=null,TimeSpan? time=null){
-   new TaskEditor(this,repo,null,date??(page=="calendar"?calendarDate:DateTime.Today),
+   new TaskEditor(this,repo,null,date??(page=="calendar"?calendarDate:railDateFilter??DateTime.Today),
     listId??(page.StartsWith("list:")?page.Substring(5):page=="board"?(boardListId??"1"):"1"),time).ShowDialog();
   }
   void EditTask(TaskItem item){new TaskDetail(this,repo,item).ShowDialog();}

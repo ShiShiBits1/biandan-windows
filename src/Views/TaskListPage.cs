@@ -10,7 +10,8 @@ namespace Biandan {
   Grid taskPageFrame;
   TaskResultsList taskResults;
   TextBlock pendingCount,completedCount,tomatoCount,totalCount,emptyLabel;
-  FrameworkElement emptyTasks,bulkToolbar;
+  FrameworkElement emptyTasks,bulkToolbar,dateFilterStrip;
+  TextBlock dateFilterLabel;
   Expander completedGroup,skippedGroup;
   List<TaskItem> activeRows,completedRows,skippedRows;
 
@@ -28,10 +29,12 @@ namespace Biandan {
    completedCount.Text=completedRows.Count.ToString();
    tomatoCount.Text=FocusDuration.Tomatoes(FocusDuration.Today(repo.Focus)).ToString();
    totalCount.Text=items.Count+" 项";
+   dateFilterStrip.Visibility=railDateFilter.HasValue?Visibility.Visible:Visibility.Collapsed;
+   dateFilterLabel.Text=railDateFilter.HasValue?railDateFilter.Value.ToString("yyyy 年 M 月 d 日")+" 的待办":"";
    if(quickInput!=null)quickInput.IsEnabled=repo.CanWrite;
    completedGroup.Header="已完成  ·  "+completedRows.Count;
    skippedGroup.Header="已跳过  ·  "+skippedRows.Count;
-   emptyLabel.Text=items.Count>0?"没有待完成事项":page=="today"?"今天还没有待办":page=="completed"?"还没有完成记录":"暂无待办";
+   emptyLabel.Text=items.Count>0?"没有待完成事项":railDateFilter.HasValue?"这一天没有待办":page=="today"?"今天还没有待办":page=="completed"?"还没有完成记录":"暂无待办";
    UpdateGroupedRows();
   }
 
@@ -49,6 +52,18 @@ namespace Biandan {
     pendingCount=U.Text("",25,"#8D560B",true);completedCount=U.Text("",25,"#8D560B",true);tomatoCount=U.Text("",25,"#7B6548",true);
     U.Place(stats,Stat("待完成",pendingCount));U.Place(stats,Stat("已完成",completedCount),1);U.Place(stats,Stat("今日番茄数",tomatoCount),2);panel.Children.Add(stats);U.Gap(panel,20);
    }
+   var dateFilter=U.Stack(true);
+   dateFilter.Margin=new Thickness(0,0,0,10);
+   dateFilterLabel=U.Text("",12,"#6E5638",true);
+   dateFilterLabel.VerticalAlignment=VerticalAlignment.Center;
+   dateFilter.Children.Add(dateFilterLabel);
+   var clear=U.Button("清除日期筛选",ClearRailDateFilter,"Secondary");
+   clear.Padding=new Thickness(8,3,8,3);
+   clear.MinHeight=24;
+   clear.Margin=new Thickness(10,0,0,0);
+   dateFilter.Children.Add(clear);
+   dateFilterStrip=dateFilter;
+   panel.Children.Add(dateFilterStrip);
    var section=U.Grid("*,Auto","Auto,Auto");
    var heading=U.Stack(true);
    heading.Children.Add(U.Text(page=="habits"?"今天的好习惯":page=="completed"?"完成记录":"待办事项",16,"#2E2418",true));

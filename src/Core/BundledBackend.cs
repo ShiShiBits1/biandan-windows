@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 
 namespace Biandan {
  internal static class BundledBackend {
+  internal const string Version="0.4.6";
   const string ResourceName="Biandan.Backend.exe";
   const string ExecutableName="biandan-mcp.exe";
 
